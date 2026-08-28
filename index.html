@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sounding — replay instrument</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <header>
+      <select id="fixture-select"></select>
+      <button id="play-pause">Drop</button>
+      <select id="speed">
+        <option value="1">1x</option>
+        <option value="4">4x</option>
+        <option value="0">instant</option>
+      </select>
+      <span id="clock">0:00</span>
+      <span id="slack-indicator" hidden>slack</span>
+      <span id="counters"></span>
+    </header>
+    <main>
+      <svg id="chart"></svg>
+      <aside id="inspector"><p>Click a mark to see its transition history.</p></aside>
+    </main>
+    <script type="module" src="/src/ui/main.ts"></script>
+  </body>
+</html>
