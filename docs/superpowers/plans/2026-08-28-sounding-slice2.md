@@ -1485,14 +1485,19 @@ export class ClaudeExtractionInterpreter implements Interpreter {
     try {
       const response = await this.client.messages.create({
         model: MODEL,
-        max_tokens: 2000,
+        // thinking is on by default on claude-opus-5 and max_tokens caps
+        // thinking + response together — 8000 leaves headroom (unused tokens
+        // cost nothing). The cache_control below engages only once the system
+        // prompt crosses the 512-token cacheable minimum; until then
+        // cache_read_input_tokens: 0 is expected, not a bug.
+        max_tokens: 8000,
         output_config: { effort: EXTRACTION_EFFORT, format: { type: 'json_schema', schema: CANDIDATES_SCHEMA } },
         system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: buildUserPrompt(this.window) }],
       })
       const latencyMs = Math.round(performance.now() - started)
-      if (response.stop_reason === 'refusal') {
-        console.error(`[${this.id}] request refused (${response.stop_details?.category ?? 'uncategorized'}); returning no candidates`)
+      if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
+        console.error(`[${this.id}] no usable output (stop_reason=${response.stop_reason}${response.stop_details?.category ? `, ${response.stop_details.category}` : ''}); returning no candidates`)
         return { candidates: [], costUsd: 0, latencyMs }
       }
       const text = response.content.find((b) => b.type === 'text')?.text ?? '{"candidates":[]}'
