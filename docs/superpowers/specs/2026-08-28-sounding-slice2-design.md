@@ -22,7 +22,7 @@ At the end of slice 2:
 src/
   core/ salience/ interpret/ replay/   ← pure engine (wall-clock guard applies)
   providers/                           ← I/O: network, filesystem, wall-clock (guard-exempt)
-    groq-transcription.ts              Whisper transcription → FixtureScript
+    whisper-transcription.ts           local whisper.cpp transcription → FixtureScript
     claude-extraction.ts               Interpreter (input: 'transcript'), claude-opus-5
     gemini-audio.ts                    Interpreter (input: 'audio'), audio-native
     audio-slicer.ts                    ffmpeg window slicing → AudioSegment
@@ -40,7 +40,7 @@ The wall-clock/randomness guard test narrows its walk to `src/core`, `src/salien
 
 Whisper runs once per recording, in both architectures — segmentation is a separate layer from interpretation (brief: segmentation sets the latency floor; interpretation is swappable).
 
-- **Transcription:** Groq `whisper-large-v3-turbo` (`POST /openai/v1/audio/transcriptions`, multipart, `response_format: verbose_json` for segment timestamps; plain `fetch`, no SDK dependency). ~$0.04 per audio-hour.
+- **Transcription:** **local whisper.cpp** (`whisper-cli`, already installed via Homebrew; Metal-accelerated on Apple Silicon). The provider shells out with `--output-json` for measured segment timestamps; model file `ggml-large-v3-turbo` (~1.6GB, multilingual), downloaded once from the whisper.cpp model repo — the CLI checks for it and prints the download command if missing. Cost: $0, offline, no key. (Groq's hosted Whisper was the original plan but is geo-blocked from this network; hosted transcription can swap in behind the same provider interface later — it's exactly the kind of substitution the port design anticipates. Whisper timestamps are ASR-measured, which is why generative transcription — e.g. Gemini — is not used for segmentation: estimated timestamps would distort the event timeline that everything downstream trusts.)
 - **Caching:** the result is saved as `recordings/<memo>.transcript.json` — a `FixtureScript` (name, segments with startT/endT/text, endT, empty truth). Subsequent casts of the same recording skip Groq. The transcript IS a fixture: the entire slice-1 replay machinery (pending-word synthesis, capture events, runner) works on real recordings unchanged.
 - **A/B validity:** because both paths consume the same capture events, two casts of one recording differ only in `candidates.emitted` and everything downstream — a clean experiment on identical input.
 
@@ -108,8 +108,8 @@ Victor records 3–5 voice memos (5–10 min each, genuine thinking-aloud on rea
 
 ## Environment / prerequisites
 
-- `GROQ_API_KEY` (console.groq.com), `GEMINI_API_KEY` (Google AI Studio); Anthropic via existing `ant auth login` profile or `ANTHROPIC_API_KEY`.
-- `ffmpeg` in PATH for audio-native windows.
+- `GEMINI_API_KEY` (Google AI Studio — verified reachable from this network); Anthropic via existing `ant auth login` profile or `ANTHROPIC_API_KEY`. No Groq key (geo-blocked; replaced by local whisper.cpp).
+- `whisper-cli` and `ffmpeg` in PATH (both already installed via Homebrew) plus the ggml-large-v3-turbo model file (one-time ~1.6GB download).
 - New runtime dependencies: `@anthropic-ai/sdk`, `@huggingface/transformers`. Groq and Gemini via `fetch`. (Slice 1's zero-runtime-dependency constraint retires with the slice that needed it; the pure engine still imports nothing.)
 
 ## Testing
