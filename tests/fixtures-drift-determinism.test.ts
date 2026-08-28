@@ -46,7 +46,7 @@ describe('wall-clock guard', () => {
       for (const name of readdirSync(dir)) {
         const p = join(dir, name)
         if (statSync(p).isDirectory()) {
-          if (name === 'ui') continue // wall clock is allowed in the UI layer only
+          if (p === join('src', 'ui')) continue // wall clock is allowed in the UI layer only
           walk(p)
         } else if (p.endsWith('.ts') && banned.test(readFileSync(p, 'utf8'))) {
           offenders.push(p)

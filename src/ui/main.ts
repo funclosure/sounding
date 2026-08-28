@@ -37,6 +37,7 @@ function reset() {
   replay = createReplay(script)
   sessionT = 0
   playing = false
+  advancing = false
   renderedThrough = 0
   selectedConceptId = null
   history.clear()
@@ -54,8 +55,11 @@ playPause.addEventListener('click', async () => {
   if (advancing || playPause.textContent === 'Surfaced') return // a sounding surfaces once; pick a fixture to re-drop
   if (speedSelect.value === '0') {
     advancing = true
-    await replay.runner.runToEnd()
-    advancing = false
+    try {
+      await replay.runner.runToEnd()
+    } finally {
+      advancing = false
+    }
     sessionT = script.endT
     consumeAndRender()
     playPause.textContent = 'Surfaced'
@@ -147,8 +151,11 @@ async function frame(wallT: number) {
     sessionT = Math.min(sessionT + (wallT - lastFrameWallT) * speed, script.endT)
     lastFrameWallT = wallT
     advancing = true
-    await replay.runner.advanceTo(sessionT)
-    advancing = false
+    try {
+      await replay.runner.advanceTo(sessionT)
+    } finally {
+      advancing = false
+    }
     consumeAndRender()
     if (sessionT >= script.endT) {
       playing = false
