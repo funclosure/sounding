@@ -44,14 +44,18 @@ function reset() {
   inspector.innerHTML = '<p>Click a mark to see its transition history.</p>'
   chart.innerHTML = ''
   clockEl.textContent = '0:00'
+  slackEl.hidden = true
+  countersEl.textContent = ''
 }
 
 fixtureSelect.addEventListener('change', reset)
 
 playPause.addEventListener('click', async () => {
-  if (playPause.textContent === 'Surfaced') return // a sounding surfaces once; pick a fixture to re-drop
+  if (advancing || playPause.textContent === 'Surfaced') return // a sounding surfaces once; pick a fixture to re-drop
   if (speedSelect.value === '0') {
+    advancing = true
     await replay.runner.runToEnd()
+    advancing = false
     sessionT = script.endT
     consumeAndRender()
     playPause.textContent = 'Surfaced'
