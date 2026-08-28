@@ -2485,6 +2485,7 @@ function reset() {
 fixtureSelect.addEventListener('change', reset)
 
 playPause.addEventListener('click', async () => {
+  if (playPause.textContent === 'Surfaced') return // a sounding surfaces once; pick a fixture to re-drop
   if (speedSelect.value === '0') {
     await replay.runner.runToEnd()
     sessionT = script.endT
