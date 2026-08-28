@@ -1,6 +1,7 @@
 import type { Concept, ConceptCandidate, Ms, Reading, Transition } from '../core/types'
 import type { IdentityResolver } from './identity'
 import type { SalienceConfig } from './config'
+import { tokenize } from '../core/text'
 
 /**
  * The app. Owns promotion and demotion under contention: decay, fixed
@@ -43,8 +44,18 @@ export class ReadingDynamics {
     }
   }
 
-  nudge(_t: Ms, _pendingText: string): void {
-    // fast-loop weight nudges — implemented in the hysteresis/nudge task
+  nudge(t: Ms, pendingText: string): void {
+    this.decayTo(t)
+    this.lastSpeechT = t
+    const pendingTokens = new Set(tokenize(pendingText))
+    for (const id of this.surfaced) {
+      const c = this.concepts.get(id)!
+      const labelTokens = c.label.split(' ')
+      if (labelTokens.every((tok) => pendingTokens.has(tok))) {
+        c.weight += this.config.nudgeFactor
+        this.pendingTransitions.push({ kind: 'nudged', conceptId: id, delta: this.config.nudgeFactor })
+      }
+    }
   }
 
   tick(t: Ms): { transitions: Transition[]; reading: Reading } {
@@ -81,8 +92,38 @@ export class ReadingDynamics {
     }
   }
 
-  private contest(_transitions: Transition[], _eligible: Concept[], _surfacedSet: Set<string>): void {
-    // displacement under contention with hysteresis — implemented in Task 7
+  private contest(transitions: Transition[], eligible: Concept[], surfacedSet: Set<string>): void {
+    if (this.surfaced.length < this.config.capacity) return
+    const incumbents = this.surfaced
+      .map((id) => this.concepts.get(id)!)
+      .sort((a, b) => (a.weight - b.weight) || (a.id < b.id ? -1 : 1))
+    const weakest = incumbents[0]
+    const bar = weakest.weight * (1 + this.config.hysteresisMargin)
+
+    const challengers = eligible.filter((c) => !surfacedSet.has(c.id))
+    for (const ch of challengers) {
+      if (ch.weight > bar) {
+        this.streaks.set(ch.id, (this.streaks.get(ch.id) ?? 0) + 1)
+      } else {
+        this.streaks.delete(ch.id)
+      }
+    }
+    for (const id of [...this.streaks.keys()]) {
+      if (!this.concepts.has(id) || surfacedSet.has(id)) this.streaks.delete(id)
+    }
+
+    // One displacement per tick: the strongest challenger with a full streak.
+    // (challengers is already sorted by weight desc — it derives from eligible.)
+    const ready = challengers.find((ch) => (this.streaks.get(ch.id) ?? 0) >= this.config.hysteresisTicks)
+    if (ready) {
+      this.surfaced = this.surfaced.filter((id) => id !== weakest.id)
+      this.surfaced.push(ready.id)
+      surfacedSet.delete(weakest.id)
+      surfacedSet.add(ready.id)
+      this.streaks.delete(ready.id)
+      transitions.push({ kind: 'displaced', conceptId: weakest.id, label: weakest.label, byConceptId: ready.id })
+      transitions.push({ kind: 'appeared', conceptId: ready.id, label: ready.label })
+    }
   }
 
   private decayTo(t: Ms): void {
