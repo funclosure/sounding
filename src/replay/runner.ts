@@ -26,19 +26,19 @@ export class ReplayRunner {
     while (this.idx < this.events.length && this.events[this.idx].t <= target) {
       const e = this.events[this.idx++]
       if (e.type === 'segment.pending') {
-        this.session.feedPending(e.t, e.text)
+        await this.session.feedPending(e.t, e.text)
       } else {
         await this.session.feedCommitted(e.t, {
           segmentId: e.segmentId, transcript: e.transcript, startT: e.startT, endT: e.endT,
         })
       }
     }
-    this.session.advanceTo(target)
+    await this.session.advanceTo(target)
   }
 
   async runToEnd(): Promise<void> {
     await this.advanceTo(this.endT)
-    this.session.surface(this.endT)
+    await this.session.surface(this.endT)
   }
 }
 

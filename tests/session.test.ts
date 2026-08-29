@@ -18,10 +18,10 @@ describe('SoundingSession', () => {
     expect(s.log.all()).toEqual([{ type: 'sounding.dropped', t: 0, soundingId: 'test-sounding' }])
   })
 
-  it('advanceTo emits one reading.changed per tick interval', () => {
+  it('advanceTo emits one reading.changed per tick interval', async () => {
     const s = makeSession()
     s.drop()
-    s.advanceTo(550) // tickMs=100 -> ticks at 100..500
+    await s.advanceTo(550) // tickMs=100 -> ticks at 100..500
     const ticks = s.log.all().filter((e) => e.type === 'reading.changed')
     expect(ticks.map((e) => e.t)).toEqual([100, 200, 300, 400, 500])
   })
@@ -36,7 +36,7 @@ describe('SoundingSession', () => {
     expect(types.filter((t) => t === 'candidates.emitted')).toHaveLength(2)
     // ticks precede the event that shares/exceeds their timestamp
     expect(types.indexOf('segment.committed')).toBeGreaterThan(types.indexOf('reading.changed'))
-    s.advanceTo(8200)
+    await s.advanceTo(8200)
     const last = s.log.all().at(-1)!
     expect(last.type).toBe('reading.changed')
     if (last.type === 'reading.changed') {
@@ -47,16 +47,16 @@ describe('SoundingSession', () => {
   it('feedPending appends the event and timestamps stay monotonic', async () => {
     const s = makeSession()
     s.drop()
-    s.feedPending(300, 'my sister')
+    await s.feedPending(300, 'my sister')
     await s.feedCommitted(4000, { segmentId: 'seg1', transcript: 'my sister called', startT: 0, endT: 4000 })
     const ts = s.log.all().map((e) => e.t)
     expect([...ts].sort((a, b) => a - b)).toEqual(ts)
   })
 
-  it('surface finishes the log', () => {
+  it('surface finishes the log', async () => {
     const s = makeSession()
     s.drop()
-    s.surface(1000)
+    await s.surface(1000)
     expect(s.log.all().at(-1)).toEqual({ type: 'sounding.surfaced', t: 1000 })
   })
 })
