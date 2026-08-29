@@ -9,6 +9,10 @@ export interface SalienceConfig {
   nudgeFactor: number // fast-loop weight nudge per pending-text recurrence hit
   slackAfterMs: number // silence longer than this is slack
   similarityThreshold: number // embedding resolver: min cosine similarity to merge a candidate into an existing concept
+  // Tuned for Xenova/bge-small-en-v1.5 (see src/providers/embeddings.ts):
+  // valid window is (0.5804, 0.6561] — floor is the worst cross-worry false-merge
+  // risk (rent<->vacation), ceiling is the drift group's critical bridge
+  // (grief<->losing). 0.62 sits centered with ~0.036-0.04 margin either side.
 }
 
 export const DEFAULT_SALIENCE_CONFIG: SalienceConfig = {
@@ -20,5 +24,5 @@ export const DEFAULT_SALIENCE_CONFIG: SalienceConfig = {
   tickMs: 100,
   nudgeFactor: 0.05,
   slackAfterMs: 5_000,
-  similarityThreshold: 0.6,
+  similarityThreshold: 0.62,
 }
