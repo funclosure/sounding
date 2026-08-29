@@ -80,4 +80,24 @@ describe('fast-loop nudges', () => {
     const { reading } = d.tick(1300)
     expect(reading.marks.map((m) => m.label).sort()).toEqual(['alpha', 'beta'])
   })
+
+  it('nudges a natural-language label on any content-token overlap', async () => {
+    const d = new ReadingDynamics(new TokenIdentityResolver(), CFG)
+    await d.applyCandidates(1000, [cand("her sister's judgment", 1), cand('beta', 0.4)])
+    d.tick(1100)
+    d.nudge(1200, 'thinking about my sister again')
+    const res = d.tick(1300)
+    expect(res.transitions).toContainEqual(
+      expect.objectContaining({ kind: 'nudged', delta: CFG.nudgeFactor }),
+    )
+  })
+
+  it('does not nudge on stopword-only overlap', async () => {
+    const d = new ReadingDynamics(new TokenIdentityResolver(), CFG)
+    await d.applyCandidates(1000, [cand('the big decision', 1), cand('beta', 0.4)])
+    d.tick(1100)
+    d.nudge(1200, 'the and of about')
+    const res = d.tick(1300)
+    expect(res.transitions.filter((tr) => tr.kind === 'nudged')).toEqual([])
+  })
 })

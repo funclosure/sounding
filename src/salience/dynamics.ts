@@ -50,8 +50,11 @@ export class ReadingDynamics {
     const pendingTokens = new Set(tokenize(pendingText))
     for (const id of this.surfaced) {
       const c = this.concepts.get(id)!
-      const labelTokens = c.label.split(' ')
-      if (labelTokens.every((tok) => pendingTokens.has(tok))) {
+      // Fast-loop identity shares the slow loop's normalization: tokenize the
+      // label (normalization + stopword removal) and fire on ANY overlap, so
+      // natural-language labels from model interpreters keep the fast loop alive.
+      const labelTokens = tokenize(c.label)
+      if (labelTokens.length > 0 && labelTokens.some((tok) => pendingTokens.has(tok))) {
         c.weight += this.config.nudgeFactor
         this.pendingTransitions.push({ kind: 'nudged', conceptId: id, delta: this.config.nudgeFactor })
       }
