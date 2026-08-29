@@ -36,8 +36,15 @@ export function parseCastArgs(argv: string[]): CastArgs {
       const v = argv[++i]
       if (!INTERPRETERS.includes(v as InterpreterName)) throw new Error(`unknown interpreter ${v} — one of: ${INTERPRETERS.join(', ')}`)
       args.interpreter = v as InterpreterName
-    } else if (a === '--model-path') args.modelPath = argv[++i]
-    else if (a === '--threshold') args.threshold = Number(argv[++i])
+    } else if (a === '--model-path') {
+      const v = argv[++i]
+      if (!v) throw new Error('--model-path requires a path')
+      args.modelPath = v
+    } else if (a === '--threshold') {
+      const v = Number(argv[++i])
+      if (!Number.isFinite(v)) throw new Error('--threshold requires a number')
+      args.threshold = v
+    }
     else if (!a.startsWith('-') && !args.audioPath) args.audioPath = a
     else throw new Error(`unrecognized argument ${a}`)
   }

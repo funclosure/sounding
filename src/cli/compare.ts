@@ -20,10 +20,14 @@ function finalMarks(events: readonly SoundingEvent[]): string[] {
 
 function displacements(events: readonly SoundingEvent[]): string[] {
   const out: string[] = []
+  const map = new Map<string, string>()
   for (const e of events) {
     if (e.type !== 'reading.changed') continue
     for (const tr of e.transitions) {
-      if (tr.kind === 'displaced') out.push(`${(e.t / 1000).toFixed(1)}s  ${tr.label} ⟶ out`)
+      if (tr.kind === 'appeared') map.set(tr.conceptId, tr.label)
+    }
+    for (const tr of e.transitions) {
+      if (tr.kind === 'displaced') out.push(`${(e.t / 1000).toFixed(1)}s  ${tr.label} ⟶ ${map.get(tr.byConceptId) ?? tr.byConceptId}`)
     }
   }
   return out.length > 0 ? out : ['(none)']

@@ -73,18 +73,18 @@ export class ClaudeExtractionInterpreter implements Interpreter {
         messages: [{ role: 'user', content: buildUserPrompt(this.window) }],
       })
       const latencyMs = Math.round(performance.now() - started)
-      if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
-        console.error(`[${this.id}] no usable output (stop_reason=${response.stop_reason}${response.stop_details?.category ? `, ${response.stop_details.category}` : ''}); returning no candidates`)
-        return { candidates: [], costUsd: 0, latencyMs }
-      }
-      const text = response.content.find((b) => b.type === 'text')?.text ?? '{"candidates":[]}'
-      const candidates = mapCandidates(JSON.parse(text), this.id, input.segmentId)
       const costUsd = llmCost(MODEL, {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
         cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       })
+      if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
+        console.error(`[${this.id}] no usable output (stop_reason=${response.stop_reason}${response.stop_details?.category ? `, ${response.stop_details.category}` : ''}); returning no candidates`)
+        return { candidates: [], costUsd, latencyMs }
+      }
+      const text = response.content.find((b) => b.type === 'text')?.text ?? '{"candidates":[]}'
+      const candidates = mapCandidates(JSON.parse(text), this.id, input.segmentId)
       return { candidates, costUsd, latencyMs }
     } catch (err) {
       // one failed call must not kill a long cast — degrade to no candidates

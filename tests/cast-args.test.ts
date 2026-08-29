@@ -22,6 +22,8 @@ describe('parseCastArgs', () => {
   it('rejects unknown interpreters and missing args', () => {
     expect(() => parseCastArgs(['x.m4a', '-i', 'gpt'])).toThrow(/interpreter/)
     expect(() => parseCastArgs([])).toThrow(/usage/i)
+    expect(() => parseCastArgs(['x.m4a', '-i', 'claude', '--threshold'])).toThrow(/threshold/)
+    expect(() => parseCastArgs(['x.m4a', '-i', 'claude', '--model-path'])).toThrow(/model-path/)
   })
 })
 
