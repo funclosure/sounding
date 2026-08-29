@@ -8,6 +8,7 @@ export interface SalienceConfig {
   tickMs: number // 10Hz state rate
   nudgeFactor: number // fast-loop weight nudge per pending-text recurrence hit
   slackAfterMs: number // silence longer than this is slack
+  similarityThreshold: number // embedding resolver: min cosine similarity to merge a candidate into an existing concept
 }
 
 export const DEFAULT_SALIENCE_CONFIG: SalienceConfig = {
@@ -19,4 +20,5 @@ export const DEFAULT_SALIENCE_CONFIG: SalienceConfig = {
   tickMs: 100,
   nudgeFactor: 0.05,
   slackAfterMs: 5_000,
+  similarityThreshold: 0.6,
 }

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { buildCaptureEvents, PENDING_INTERVAL_MS } from '../src/replay/fixture'
 import { createReplay } from '../src/replay/runner'
+import { TokenIdentityResolver } from '../src/salience/identity'
 import type { FixtureScript } from '../src/replay/fixture'
+import type { Concept, ConceptCandidate } from '../src/core/types'
 
 const tiny: FixtureScript = {
   name: 'tiny',
@@ -73,5 +75,20 @@ describe('ReplayRunner', () => {
     if (last.type === 'reading.changed') {
       expect(last.reading.marks.map((m) => m.label)).toContain('sister')
     }
+  })
+})
+
+describe('createReplay options', () => {
+  it('uses an injected resolver', async () => {
+    const calls: string[] = []
+    const spy = new (class extends TokenIdentityResolver {
+      override async resolve(candidate: ConceptCandidate, concepts: readonly Concept[]): Promise<string | null> {
+        calls.push(candidate.label)
+        return super.resolve(candidate, concepts)
+      }
+    })()
+    const { runner } = createReplay(tiny, { resolver: spy })
+    await runner.runToEnd()
+    expect(calls.length).toBeGreaterThan(0)
   })
 })

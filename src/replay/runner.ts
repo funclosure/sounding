@@ -5,6 +5,7 @@ import { DEFAULT_SALIENCE_CONFIG } from '../salience/config'
 import { RecurrenceInterpreter } from '../interpret/recurrence'
 import { buildCaptureEvents } from './fixture'
 import type { CaptureEvent, FixtureScript } from './fixture'
+import type { IdentityResolver } from '../salience/identity'
 import type { Ms } from '../core/types'
 
 /**
@@ -42,9 +43,13 @@ export class ReplayRunner {
   }
 }
 
-export function createReplay(script: FixtureScript): { session: SoundingSession; runner: ReplayRunner } {
+export interface CreateReplayOptions {
+  resolver?: IdentityResolver
+}
+
+export function createReplay(script: FixtureScript, opts: CreateReplayOptions = {}): { session: SoundingSession; runner: ReplayRunner } {
   const config = { ...DEFAULT_SALIENCE_CONFIG, ...script.configOverrides }
-  const dynamics = new ReadingDynamics(new TokenIdentityResolver(), config)
+  const dynamics = new ReadingDynamics(opts.resolver ?? new TokenIdentityResolver(), config)
   const session = new SoundingSession(new RecurrenceInterpreter(), dynamics, config, script.name)
   session.drop()
   const runner = new ReplayRunner(session, buildCaptureEvents(script), script.endT)
