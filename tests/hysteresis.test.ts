@@ -9,26 +9,26 @@ function cand(label: string, strength = 1, confidence = 1): ConceptCandidate {
 }
 const CFG = { ...DEFAULT_SALIENCE_CONFIG, capacity: 2, hysteresisMargin: 0.15, hysteresisTicks: 3, tickMs: 100 }
 
-function makeFull() {
+async function makeFull() {
   const d = new ReadingDynamics(new TokenIdentityResolver(), CFG)
-  d.applyCandidates(1000, [cand('alpha', 1), cand('beta', 0.4)])
+  await d.applyCandidates(1000, [cand('alpha', 1), cand('beta', 0.4)])
   d.tick(1100) // alpha and beta fill both slots
   return d
 }
 
 describe('hysteresis displacement', () => {
-  it('a challenger below the margin never displaces', () => {
-    const d = makeFull()
+  it('a challenger below the margin never displaces', async () => {
+    const d = await makeFull()
     // gamma's weight ends up between beta and beta * 1.15
-    d.applyCandidates(1200, [cand('gamma', 0.42)])
+    await d.applyCandidates(1200, [cand('gamma', 0.42)])
     const all: Transition[] = []
     for (let t = 1300; t <= 3000; t += 100) all.push(...d.tick(t).transitions)
     expect(all.filter((tr) => tr.kind === 'displaced')).toEqual([])
   })
 
-  it('a challenger above the margin displaces only after the streak completes', () => {
-    const d = makeFull()
-    d.applyCandidates(1200, [cand('gamma', 0.9)]) // well above beta * 1.15
+  it('a challenger above the margin displaces only after the streak completes', async () => {
+    const d = await makeFull()
+    await d.applyCandidates(1200, [cand('gamma', 0.9)]) // well above beta * 1.15
     const t1 = d.tick(1300).transitions
     const t2 = d.tick(1400).transitions
     const t3 = d.tick(1500).transitions // 3rd qualifying tick -> displacement
@@ -39,21 +39,21 @@ describe('hysteresis displacement', () => {
     expect(t3).toContainEqual(expect.objectContaining({ kind: 'appeared', label: 'gamma' }))
   })
 
-  it('an interrupted streak resets', () => {
-    const d = makeFull()
-    d.applyCandidates(1200, [cand('gamma', 0.9)])
+  it('an interrupted streak resets', async () => {
+    const d = await makeFull()
+    await d.applyCandidates(1200, [cand('gamma', 0.9)])
     d.tick(1300); d.tick(1400) // 2 qualifying ticks
-    d.applyCandidates(1450, [cand('beta', 1)]) // beta re-supported, gamma no longer qualifies
+    await d.applyCandidates(1450, [cand('beta', 1)]) // beta re-supported, gamma no longer qualifies
     d.tick(1500) // streak resets
-    d.applyCandidates(1550, [cand('gamma', 0.2)])
+    await d.applyCandidates(1550, [cand('gamma', 0.2)])
     const all: Transition[] = []
     for (let t = 1600; t <= 1800; t += 100) all.push(...d.tick(t).transitions)
     expect(all.filter((tr) => tr.kind === 'displaced')).toEqual([])
   })
 
-  it('at most one displacement per tick', () => {
-    const d = makeFull()
-    d.applyCandidates(1200, [cand('gamma', 0.9), cand('delta', 0.95)])
+  it('at most one displacement per tick', async () => {
+    const d = await makeFull()
+    await d.applyCandidates(1200, [cand('gamma', 0.9), cand('delta', 0.95)])
     for (let t = 1300; t <= 2000; t += 100) {
       const displaced = d.tick(t).transitions.filter((tr) => tr.kind === 'displaced')
       expect(displaced.length).toBeLessThanOrEqual(1)
@@ -62,8 +62,8 @@ describe('hysteresis displacement', () => {
 })
 
 describe('fast-loop nudges', () => {
-  it('pending text mentioning a surfaced concept nudges its weight', () => {
-    const d = makeFull()
+  it('pending text mentioning a surfaced concept nudges its weight', async () => {
+    const d = await makeFull()
     const before = d.tick(1200).reading.marks.find((m) => m.label === 'alpha')!.weight
     d.nudge(1250, 'talking about alpha again right now')
     const res = d.tick(1300)
@@ -74,8 +74,8 @@ describe('fast-loop nudges', () => {
     )
   })
 
-  it('pending text does NOT create new concepts', () => {
-    const d = makeFull()
+  it('pending text does NOT create new concepts', async () => {
+    const d = await makeFull()
     d.nudge(1250, 'something entirely new like zeppelins')
     const { reading } = d.tick(1300)
     expect(reading.marks.map((m) => m.label).sort()).toEqual(['alpha', 'beta'])

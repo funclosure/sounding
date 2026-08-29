@@ -3,20 +3,19 @@ import type { Concept, ConceptCandidate } from '../core/types'
 
 /**
  * Candidate → existing-concept-or-new. Swappable: the embedding-similarity
- * resolver (slice 2) implements this same interface and takes over the
- * "grief"/"mourning"/"losing her" problem. v0 does normalized-token equality
- * only, which matches what the recurrence interpreter emits.
+ * resolver implements this same interface. resolve is async because
+ * embedding computation is; the token resolver resolves immediately.
  */
 export interface IdentityResolver {
-  resolve(candidate: ConceptCandidate, concepts: readonly Concept[]): string | null
+  resolve(candidate: ConceptCandidate, concepts: readonly Concept[]): Promise<string | null>
 }
 
-function normalizeLabel(label: string): string {
+export function normalizeLabel(label: string): string {
   return label.split(' ').map(normalizeToken).join(' ')
 }
 
 export class TokenIdentityResolver implements IdentityResolver {
-  resolve(candidate: ConceptCandidate, concepts: readonly Concept[]): string | null {
+  async resolve(candidate: ConceptCandidate, concepts: readonly Concept[]): Promise<string | null> {
     const key = normalizeLabel(candidate.label)
     for (const c of concepts) {
       if (normalizeLabel(c.label) === key) return c.id

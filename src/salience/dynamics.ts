@@ -23,12 +23,12 @@ export class ReadingDynamics {
     private readonly config: SalienceConfig,
   ) {}
 
-  applyCandidates(t: Ms, candidates: ConceptCandidate[]): void {
+  async applyCandidates(t: Ms, candidates: ConceptCandidate[]): Promise<void> {
     this.decayTo(t)
     this.lastSpeechT = t
     for (const cand of candidates) {
       const support = cand.strength * cand.confidence
-      const existingId = this.resolver.resolve(cand, [...this.concepts.values()])
+      const existingId = await this.resolver.resolve(cand, [...this.concepts.values()])
       if (existingId !== null) {
         const c = this.concepts.get(existingId)!
         c.weight += support

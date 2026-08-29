@@ -50,7 +50,7 @@ export class SoundingSession {
       type: 'candidates.emitted', t, segmentId: seg.segmentId, source: this.interpreter.id,
       candidates: result.candidates, costUsd: result.costUsd, latencyMs: result.latencyMs,
     })
-    this.dynamics.applyCandidates(t, result.candidates)
+    await this.dynamics.applyCandidates(t, result.candidates)
   }
 
   surface(t: Ms): void {
