@@ -12,6 +12,15 @@ export type SoundingEvent =
 export class EventLog {
   private events: SoundingEvent[] = []
 
+  private static readonly REQUIRED_FIELDS: Record<SoundingEvent['type'], string[]> = {
+    'sounding.dropped': ['soundingId'],
+    'segment.pending': ['text'],
+    'segment.committed': ['segmentId', 'transcript', 'startT', 'endT'],
+    'candidates.emitted': ['segmentId', 'source', 'candidates', 'costUsd', 'latencyMs'],
+    'reading.changed': ['transitions', 'reading'],
+    'sounding.surfaced': [],
+  }
+
   append(e: SoundingEvent): void {
     const last = this.events[this.events.length - 1]
     if (last && e.t < last.t) {
@@ -30,9 +39,26 @@ export class EventLog {
 
   static fromJsonl(jsonl: string): EventLog {
     const log = new EventLog()
-    for (const line of jsonl.split('\n')) {
+    const lines = jsonl.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
       if (line.trim().length === 0) continue
-      log.append(JSON.parse(line) as SoundingEvent)
+      const where = `line ${i + 1}`
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      } catch {
+        throw new Error(`${where}: invalid JSON`)
+      }
+      if (typeof parsed !== 'object' || parsed === null) throw new Error(`${where}: not an object`)
+      const e = parsed as Record<string, unknown>
+      const required = EventLog.REQUIRED_FIELDS[e.type as SoundingEvent['type']]
+      if (required === undefined) throw new Error(`${where}: unknown event type ${JSON.stringify(e.type)}`)
+      if (typeof e.t !== 'number' || !Number.isFinite(e.t) || e.t < 0) throw new Error(`${where}: missing or invalid t`)
+      for (const field of required) {
+        if (!(field in e)) throw new Error(`${where}: missing required field ${field}`)
+      }
+      log.append(parsed as SoundingEvent)
     }
     return log
   }
