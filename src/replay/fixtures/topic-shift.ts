@@ -3,15 +3,23 @@ import type { FixtureScript } from '../fixture'
 /**
  * Wedding planning for 60s, then a hard shift to a job offer. Old concepts
  * must be displaced after the shift (>=2 displacements by fixture end), with zero
- * displacement churn before it (Word Cloud for Meeting finding). A bounded
- * displacement-latency assertion is slice-2 tuning work.
+ * displacement churn before it (Word Cloud for Meeting finding), and the first
+ * displacement must land within 30s of the shift.
  * capacity 4 so the shift forces contention rather than slot-filling.
+ * halfLifeMs 15s (default 45s) is fixture-local tuning for the 30s bound:
+ * at the default half-life the first displacement lands at 36s post-shift
+ * because the recurrence window keeps phase-1 concepts alive too long; at
+ * 15s it lands at 27s. hysteresisMargin was swept 0.005-0.15 and had zero
+ * effect on this latency — the crossing is quantized to the two candidate
+ * segment-commit jumps in the challenger's weight (86.5s and 91s), and only
+ * decay speed decides which one clears the bar first (16s half-life still
+ * lands on the later, failing jump at 31.5s; 15.5s already clears to 27s).
  */
 export const topicShift: FixtureScript = {
   name: 'topic-shift',
   description: 'Wedding planning, then a hard shift to a job offer',
   endT: 132_000,
-  configOverrides: { capacity: 4 },
+  configOverrides: { capacity: 4, halfLifeMs: 15_000 },
   segments: [
     { startT: 0, endT: 4000, text: 'The venue question is the first decision we have to settle' },
     { startT: 4500, endT: 8500, text: 'Everything else about the wedding waits on the venue' },

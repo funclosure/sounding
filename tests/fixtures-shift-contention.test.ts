@@ -36,6 +36,16 @@ describe('topic-shift fixture', () => {
     const phase2OnChart = finalLabels.filter((l) => phase2.includes(l))
     expect(phase2OnChart.length).toBeGreaterThanOrEqual(2)
   })
+
+  it('displacement begins within a bounded interval after the shift', async () => {
+    const { readings } = await run(topicShift)
+    const shiftAt = topicShift.truth.topicShiftAt!
+    const firstDisplacement = readings.find(
+      (r) => r.t >= shiftAt && r.transitions.some((tr) => tr.kind === 'displaced'),
+    )
+    expect(firstDisplacement).toBeDefined()
+    expect(firstDisplacement!.t - shiftAt).toBeLessThanOrEqual(30_000)
+  })
 })
 
 describe('contention fixture', () => {
