@@ -88,17 +88,14 @@ playPause.addEventListener('click', async () => {
   if (advancing || playPause.textContent === 'Surfaced') return // a sounding surfaces once; pick a fixture to re-drop
   if (loadedReadings) {
     if (speedSelect.value === '0') {
+      playing = false // stop any in-flight streaming playback before the bulk rebuild below
       sessionT = loadedEvents.at(-1)?.t ?? 0
-      loadedIdx = 0
       history.clear()
       // replay all transitions instantly
       for (const r of loadedReadings) {
-        for (const tr of r.transitions) {
-          const id = tr.kind === 'merged' ? tr.intoConceptId : tr.conceptId
-          if (!history.has(id)) history.set(id, [])
-          history.get(id)!.push({ t: r.t, transition: tr })
-        }
+        recordTransitions(r.t, r.transitions)
       }
+      loadedIdx = loadedReadings.length // frame()'s while loop must never re-walk what we just replayed
       const last = loadedReadings.at(-1)
       if (last) renderReading(last.reading)
       clockEl.textContent = fmt(sessionT)
@@ -132,6 +129,15 @@ function fmt(t: Ms): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** Record each transition in `history`, keyed by the concept it lands on. */
+function recordTransitions(t: Ms, transitions: readonly Transition[]) {
+  for (const tr of transitions) {
+    const id = tr.kind === 'merged' ? tr.intoConceptId : tr.conceptId
+    if (!history.has(id)) history.set(id, [])
+    history.get(id)!.push({ t, transition: tr })
+  }
+}
+
 function consumeAndRender() {
   const events = replay.session.log.all()
   let latest: Extract<SoundingEvent, { type: 'reading.changed' }> | null = null
@@ -139,11 +145,7 @@ function consumeAndRender() {
     const e = events[i]
     if (e.type === 'reading.changed') {
       latest = e
-      for (const tr of e.transitions) {
-        const id = tr.kind === 'merged' ? tr.intoConceptId : tr.conceptId
-        if (!history.has(id)) history.set(id, [])
-        history.get(id)!.push({ t: e.t, transition: tr })
-      }
+      recordTransitions(e.t, e.transitions)
     }
   }
   renderedThrough = events.length
@@ -211,11 +213,7 @@ async function frame(wallT: number) {
     let latest: (typeof loadedReadings)[number] | null = null
     while (loadedIdx < loadedReadings.length && loadedReadings[loadedIdx].t <= sessionT) {
       latest = loadedReadings[loadedIdx]
-      for (const tr of latest.transitions) {
-        const id = tr.kind === 'merged' ? tr.intoConceptId : tr.conceptId
-        if (!history.has(id)) history.set(id, [])
-        history.get(id)!.push({ t: latest.t, transition: tr })
-      }
+      recordTransitions(latest.t, latest.transitions)
       loadedIdx += 1
     }
     if (latest) renderReading(latest.reading)
