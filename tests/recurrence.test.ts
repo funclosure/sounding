@@ -59,7 +59,7 @@ describe('RecurrenceInterpreter', () => {
 
   it('rejects audio input for now', async () => {
     const interp = new RecurrenceInterpreter()
-    const audio = { kind: 'audio' as const, segmentId: 'a1', samples: new Float32Array(0), sampleRate: 16000, startT: 0, endT: 0 }
+    const audio = { kind: 'audio' as const, segmentId: 'a1', mimeType: 'audio/mpeg', data: new Uint8Array(0), startT: 0, endT: 0 }
     await expect(interp.interpret(audio)).rejects.toThrow(/transcript/)
   })
 })

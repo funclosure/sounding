@@ -16,6 +16,7 @@ const DEFAULTS: RecurrenceOptions = { windowSegments: 8, minCount: 2 }
  */
 export class RecurrenceInterpreter implements Interpreter {
   readonly id = 'recurrence-v0'
+  readonly input = 'transcript' as const
   private window: string[][] = []
   private readonly opts: RecurrenceOptions
 

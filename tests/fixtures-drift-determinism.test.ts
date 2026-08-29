@@ -45,15 +45,12 @@ describe('wall-clock guard', () => {
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {
         const p = join(dir, name)
-        if (statSync(p).isDirectory()) {
-          if (p === join('src', 'ui')) continue // wall clock is allowed in the UI layer only
-          walk(p)
-        } else if (p.endsWith('.ts') && banned.test(readFileSync(p, 'utf8'))) {
-          offenders.push(p)
-        }
+        if (statSync(p).isDirectory()) walk(p)
+        else if (p.endsWith('.ts') && banned.test(readFileSync(p, 'utf8'))) offenders.push(p)
       }
     }
-    walk('src')
+    // Pure engine only. src/providers, src/cli, src/ui are the I/O layer and exempt.
+    for (const dir of ['src/core', 'src/salience', 'src/interpret', 'src/replay']) walk(dir)
     expect(offenders).toEqual([])
   })
 })

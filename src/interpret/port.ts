@@ -11,8 +11,8 @@ export interface Transcript {
 export interface AudioSegment {
   kind: 'audio'
   segmentId: string
-  samples: Float32Array
-  sampleRate: number
+  mimeType: string      // e.g. 'audio/mpeg'
+  data: Uint8Array      // encoded bytes of the audio window
   startT: Ms
   endT: Ms
 }
@@ -32,5 +32,6 @@ export interface InterpretationResult {
 
 export interface Interpreter {
   readonly id: string
+  readonly input: 'transcript' | 'audio'
   interpret(input: InterpreterInput): Promise<InterpretationResult>
 }
