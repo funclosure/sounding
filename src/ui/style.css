@@ -11,3 +11,6 @@ main { flex: 1; display: flex; min-height: 0; }
 .mark circle { fill: #3d7ea6; fill-opacity: 0.55; stroke: none; cursor: pointer; }
 .mark.selected circle { fill-opacity: 0.85; }
 .mark text { fill: #12303f; text-anchor: middle; pointer-events: none; }
+#mic-status { font-variant-numeric: tabular-nums; color: #3d5a6a; min-width: 12ch; }
+#mic-status.recording { color: #c6472e; }
+#record:disabled { opacity: 0.6; }

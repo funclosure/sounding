@@ -10,6 +10,13 @@
     <header>
       <select id="fixture-select"></select>
       <input type="file" id="log-file" accept=".jsonl" title="Load a saved sounding log" />
+      <select id="mic-interp" title="Interpreter for mic recordings">
+        <option value="gemini">gemini</option>
+        <option value="claude">claude</option>
+        <option value="recurrence">recurrence</option>
+      </select>
+      <button id="record">Record</button>
+      <span id="mic-status"></span>
       <button id="play-pause">Drop</button>
       <select id="speed">
         <option value="1">1x</option>
