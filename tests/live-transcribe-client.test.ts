@@ -69,10 +69,10 @@ describe('TranscribeLiveClient', () => {
     expect(old.sent.at(-1)).toContain('audioStreamEnd')
   })
 
-  // Additional coverage (not in the brief) for the `awaitingFinal` branch of
-  // drain(): the two tests above only exercise awaitingFinal === false
-  // (a final already arrived before end()). These exercise the true branch,
-  // where an interim has arrived with no matching final yet.
+  // Additional coverage (not in the brief) for the "final still owed" branch
+  // of drain(): the two tests above only exercise the not-owed case (a final
+  // already arrived, with no audio sent since, before end()). These exercise
+  // the owed branch, where audio was sent to the socket since its last final.
   it('drain waits for the timer when a final is still owed, then resolves and closes', async () => {
     FakeSocket.created = []
     const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
@@ -80,6 +80,7 @@ describe('TranscribeLiveClient', () => {
     const p = c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
     const ws = FakeSocket.created[0]
     ws.open(); ws.receive({ setupComplete: {} }); await p
+    c.sendAudio(new Int16Array([1]))
     ws.receive({ serverContent: { interimInputTranscription: { text: 'hel' } } })
     let resolved = false
     const endP = c.end().then(() => { resolved = true })
@@ -101,11 +102,107 @@ describe('TranscribeLiveClient', () => {
     const p = c.connect({ onInterim: () => {}, onFinal: (t) => got.push('F:' + t), onStatus: () => {} })
     const ws = FakeSocket.created[0]
     ws.open(); ws.receive({ setupComplete: {} }); await p
+    c.sendAudio(new Int16Array([1]))
     ws.receive({ serverContent: { interimInputTranscription: { text: 'hel' } } })
     const endP = c.end()
     ws.receive({ serverContent: { inputTranscription: { text: 'hello' } } })
     await endP
     expect(got).toEqual(['F:hello'])
     expect(ws.closed).toBe(true)
+  })
+
+  it('end() waits for the trailing final when audio was sent after the last final', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const got: string[] = []
+    const p = c.connect({ onInterim: () => {}, onFinal: (t) => got.push('F:' + t), onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open(); ws.receive({ setupComplete: {} }); await p
+    ws.receive({ serverContent: { inputTranscription: { text: 'hello' } } })
+    c.sendAudio(new Int16Array([1]))
+    let resolved = false
+    const endP = c.end().then(() => { resolved = true })
+    await Promise.resolve()
+    expect(JSON.parse(ws.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } })
+    expect(resolved).toBe(false)
+    expect(ws.closed).toBe(false)
+    ws.receive({ serverContent: { inputTranscription: { text: 'world' } } })
+    await endP
+    expect(got).toEqual(['F:hello', 'F:world'])
+    expect(resolved).toBe(true)
+    expect(ws.closed).toBe(true)
+  })
+
+  it('end() falls back to the 3s timer when no final arrives', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const p = c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open(); ws.receive({ setupComplete: {} }); await p
+    ws.receive({ serverContent: { inputTranscription: { text: 'hello' } } })
+    c.sendAudio(new Int16Array([1]))
+    let resolved = false
+    const endP = c.end().then(() => { resolved = true })
+    await Promise.resolve()
+    expect(JSON.parse(ws.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } })
+    expect(resolved).toBe(false)
+    expect(ws.closed).toBe(false)
+    timers.find((x) => x.at === 3000)!.fn()
+    await endP
+    expect(resolved).toBe(true)
+    expect(ws.closed).toBe(true)
+  })
+
+  it("rotation: a final on the old socket does not clear the fresh socket's pending flag", async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const p = c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const old = FakeSocket.created[0]
+    old.open(); old.receive({ setupComplete: {} }); await p
+    c.sendAudio(new Int16Array([1]))
+    now.t = 1000
+    timers.find((x) => x.at === 1000)!.fn()                    // session-limit timer fires; rotate() begins
+    expect(FakeSocket.created.length).toBe(2)
+    const fresh = FakeSocket.created[1]
+    fresh.open(); fresh.receive({ setupComplete: {} })
+    await Promise.resolve()                                    // rotate() continuation: this.ws = fresh; drain(old) begins
+    c.sendAudio(new Int16Array([2]))                            // goes to fresh
+    old.receive({ serverContent: { inputTranscription: { text: 'old-final' } } })
+    expect(old.closed).toBe(true)                               // old's owed final arrived; old drains and closes
+    let resolved = false
+    const endP = c.end().then(() => { resolved = true })
+    await Promise.resolve()
+    expect(JSON.parse(fresh.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } })
+    expect(resolved).toBe(false)
+    expect(fresh.closed).toBe(false)
+    fresh.receive({ serverContent: { inputTranscription: { text: 'fresh-final' } } })
+    await endP
+    expect(resolved).toBe(true)
+    expect(fresh.closed).toBe(true)
+  })
+
+  it('end() during an in-flight rotate does not resurrect a socket', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const p = c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const old = FakeSocket.created[0]
+    old.open(); old.receive({ setupComplete: {} }); await p
+    now.t = 1000
+    timers.find((x) => x.at === 1000)!.fn()                    // session-limit timer fires; fresh socket created but not opened
+    expect(FakeSocket.created.length).toBe(2)
+    const fresh = FakeSocket.created[1]
+    const timerCountBefore = timers.length
+    await c.end()
+    expect(old.closed).toBe(true)
+    fresh.open(); fresh.receive({ setupComplete: {} })          // rotate()'s open() resolves after end() already ran
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(JSON.parse(fresh.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } })
+    expect(fresh.closed).toBe(true)
+    expect(timers.length).toBe(timerCountBefore)                // no new limit timer armed
   })
 })

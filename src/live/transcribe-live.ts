@@ -29,8 +29,15 @@ export class TranscribeLiveClient implements Transcriber {
   private ws: WebSocketLike | null = null
   private cbs: TranscriberCallbacks | null = null
   private limitTimer: ReturnType<typeof setTimeout> | null = null
-  /** True between an interim and its matching final; tells end()/rotate() whether a trailing final is still owed. */
-  private awaitingFinal = false
+  /**
+   * Per-socket: a socket is present whenever audio has been sent to it since
+   * its last final. Tells drain(ws) whether a trailing final is still owed
+   * by *that* socket — tracked per socket so a final on the old socket
+   * during rotation can't clear the fresh socket's pending state.
+   */
+  private readonly pending = new Set<WebSocketLike>()
+  /** Set by end(); tells an in-flight rotate() not to resurrect the session once its fresh socket opens. */
+  private ended = false
   private readonly factory: (url: string) => WebSocketLike
   private readonly sessionLimitMs: number
   private readonly setTimer: typeof setTimeout
@@ -55,9 +62,11 @@ export class TranscribeLiveClient implements Transcriber {
     if (!this.ws || this.ws.readyState !== 1) return
     const bytes = Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength)
     this.ws.send(JSON.stringify({ realtimeInput: { audio: { data: bytes.toString('base64'), mimeType: 'audio/pcm;rate=16000' } } }))
+    this.pending.add(this.ws)
   }
 
   async end(): Promise<void> {
+    this.ended = true
     if (this.limitTimer) this.clearTimer(this.limitTimer)
     const ws = this.ws
     this.ws = null
@@ -88,10 +97,9 @@ export class TranscribeLiveClient implements Transcriber {
           // voiceActivity / generationComplete carry no transcript text and are
           // deliberately ignored here; only interim/final text is dispatched.
           if (sc?.interimInputTranscription?.text !== undefined) {
-            this.awaitingFinal = true
             this.cbs?.onInterim(sc.interimInputTranscription.text)
           } else if (sc?.inputTranscription?.text !== undefined) {
-            this.awaitingFinal = false
+            this.pending.delete(ws)
             this.cbs?.onFinal(sc.inputTranscription.text)
           }
         })()
@@ -100,17 +108,18 @@ export class TranscribeLiveClient implements Transcriber {
   }
 
   /**
-   * Send audioStreamEnd, then close. If an interim has arrived with no
-   * matching final yet, wait briefly (message or 3s timer, whichever first)
-   * for that trailing final before closing; otherwise there is nothing to
+   * Send audioStreamEnd, then close. If audio was sent to this socket since
+   * its last final, a trailing final is still owed: wait briefly (message or
+   * 3s timer, whichever first) before closing. Otherwise there is nothing to
    * wait for and we close right away.
    */
   private drain(ws: WebSocketLike): Promise<void> {
     return new Promise((resolve) => {
       let done = false
       const finish = () => { if (!done) { done = true; try { ws.close() } catch { /* already closed */ } resolve() } }
+      const owed = this.pending.delete(ws)
       try { ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })) } catch { finish(); return }
-      if (!this.awaitingFinal) { finish(); return }
+      if (!owed) { finish(); return }
       const prev = ws.onmessage
       ws.onmessage = (ev) => { prev?.(ev); if (typeof ev.data === 'string' && ev.data.includes('"inputTranscription"')) finish() }
       this.setTimer(finish, 3000)
@@ -127,6 +136,7 @@ export class TranscribeLiveClient implements Transcriber {
     this.cbs?.onStatus('reconnecting')
     try {
       const fresh = await this.open()
+      if (this.ended) { await this.drain(fresh); return }
       this.ws = fresh
       this.cbs?.onStatus('listening')
       this.armLimit()
