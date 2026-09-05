@@ -15,8 +15,8 @@ class PcmCapture extends AudioWorkletProcessor {
     else {
       // linear interpolation from context rate down to 16k
       let p = this.pos
-      while (p < ch.length - 1) { const i = Math.floor(p), f = p - i; this.acc.push(ch[i] * (1 - f) + ch[i + 1] * f); p += this.ratio }
-      this.pos = p - ch.length
+      while (p < ch.length - 1) { const i = Math.floor(p), f = p - i; this.acc.push(ch[i] * (1 - f) + ch[Math.min(i + 1, ch.length - 1)] * f); p += this.ratio }
+      this.pos = Math.max(0, p - ch.length)
     }
     while (this.acc.length >= 1600) {
       const out = new Int16Array(1600)
