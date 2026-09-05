@@ -254,7 +254,7 @@ async function frame(wallT: number) {
 
 // ---- Mic recording: record → save → cast → load. Not live; the cast runs
 // after Stop, and the reading appears when it finishes.
-type MicState = 'idle' | 'recording' | 'saving' | 'casting'
+type MicState = 'idle' | 'starting' | 'recording' | 'saving' | 'casting'
 let micState: MicState = 'idle'
 let recorder: MediaRecorder | null = null
 let micChunks: Blob[] = []
@@ -266,7 +266,7 @@ function setMic(state: MicState, status = '') {
   micStatus.textContent = status
   micStatus.classList.toggle('recording', state === 'recording')
   recordBtn.textContent = state === 'recording' ? 'Stop' : 'Record'
-  recordBtn.disabled = state === 'saving' || state === 'casting'
+  recordBtn.disabled = state === 'starting' || state === 'saving' || state === 'casting'
   micInterp.disabled = state !== 'idle'
 }
 
@@ -288,12 +288,22 @@ function firstLine(s: string): string {
 
 async function postJson<T>(url: string, body: BodyInit, contentType: string): Promise<T> {
   const res = await fetch(url, { method: 'POST', headers: { 'content-type': contentType }, body })
-  const json = (await res.json()) as T & { error?: string }
-  if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`)
-  return json
+  const text = await res.text()
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`
+    try {
+      const json = JSON.parse(text) as { error?: string }
+      if (json.error) message = json.error
+    } catch {
+      // not JSON (e.g. a dev-server error page); fall back to the HTTP status
+    }
+    throw new Error(message)
+  }
+  return JSON.parse(text) as T
 }
 
 async function startRecording() {
+  setMic('starting', 'starting…')
   let stream: MediaStream
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -339,7 +349,10 @@ async function saveAndCast(blob: Blob) {
 
 recordBtn.addEventListener('click', () => {
   if (micState === 'idle') void startRecording()
-  else if (micState === 'recording') recorder?.stop()
+  else if (micState === 'recording') {
+    setMic('saving', 'saving…')
+    if (recorder?.state === 'recording') recorder.stop()
+  }
 })
 
 reset()
