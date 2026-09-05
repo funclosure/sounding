@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TranscribeLiveClient, type WebSocketLike } from '../src/live/transcribe-live'
+import { TranscribeLiveClient, setupMessage, type WebSocketLike } from '../src/live/transcribe-live'
 
 class FakeSocket implements WebSocketLike {
   static created: FakeSocket[] = []
@@ -17,12 +17,13 @@ class FakeSocket implements WebSocketLike {
   receive(obj: unknown) { this.onmessage?.({ data: JSON.stringify(obj) }) }
 }
 
-function makeClient(now: { t: number }, timers: Array<{ at: number; fn: () => void }>) {
+function makeClient(now: { t: number }, timers: Array<{ at: number; fn: () => void }>, languageCodes?: string[]) {
   return new TranscribeLiveClient('KEY', {
     socketFactory: (url) => new FakeSocket(url),
     sessionLimitMs: 1000,
     setTimer: ((fn: () => void, ms: number) => { timers.push({ at: now.t + ms, fn }); return timers.length as unknown as NodeJS.Timeout }) as typeof setTimeout,
     clearTimer: (() => {}) as typeof clearTimeout,
+    ...(languageCodes !== undefined ? { languageCodes } : {}),
   })
 }
 
@@ -36,7 +37,7 @@ describe('TranscribeLiveClient', () => {
     const ws = FakeSocket.created[0]
     expect(ws.url).toContain('BidiGenerateContent?key=KEY')
     ws.open()
-    expect(JSON.parse(ws.sent[0])).toEqual({ setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: [], mode: 'VERBATIM' } } })
+    expect(JSON.parse(ws.sent[0])).toEqual(setupMessage(['en-US']))
     ws.receive({ setupComplete: {} })
     await p
     c.sendAudio(new Int16Array([1, 2, 3]))
@@ -49,6 +50,27 @@ describe('TranscribeLiveClient', () => {
     expect(got).toEqual(['I:hel', 'F:hello'])
     await c.end()
     expect(JSON.parse(ws.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } })
+  })
+
+  it('sends the configured languageCodes in the setup message', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers, ['fr-FR'])
+    void c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open()
+    expect(JSON.parse(ws.sent[0])).toEqual(setupMessage(['fr-FR']))
+  })
+
+  it('sends an empty languageCodes array (auto-detect) when configured', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers, [])
+    void c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open()
+    expect(JSON.parse(ws.sent[0])).toEqual(setupMessage([]))
+    expect(JSON.parse(ws.sent[0]).setup.inputAudioTranscription.languageCodes).toEqual([])
   })
 
   it('reconnects at the session limit and routes new audio to the new socket', async () => {

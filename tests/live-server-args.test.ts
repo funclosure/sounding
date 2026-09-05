@@ -27,6 +27,25 @@ describe('parseArgs', () => {
   it('rejects an unknown flag', () => {
     expect(() => parseArgs(['--bogus'])).toThrow()
   })
+
+  it('defaults lang to en-US', () => {
+    const a = parseArgs([])
+    expect(a.lang).toBe('en-US')
+  })
+
+  it('accepts --lang <code>', () => {
+    const a = parseArgs(['--lang', 'fr-FR'])
+    expect(a.lang).toBe('fr-FR')
+  })
+
+  it('accepts --lang auto', () => {
+    const a = parseArgs(['--lang', 'auto'])
+    expect(a.lang).toBe('auto')
+  })
+
+  it('rejects --lang without a value', () => {
+    expect(() => parseArgs(['--lang'])).toThrow()
+  })
 })
 
 describe('isAllowedOrigin', () => {

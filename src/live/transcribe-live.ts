@@ -14,7 +14,12 @@ export interface WebSocketLike {
 }
 
 const ENDPOINT = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
-export const SETUP = { setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: [], mode: 'VERBATIM' } } }
+
+/** Setup frame sent on socket open. `languageCodes: []` lets Gemini auto-detect; a non-empty list pins transcription to those languages. */
+export function setupMessage(languageCodes: string[]) {
+  return { setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes, mode: 'VERBATIM' } } }
+}
+export const SETUP = setupMessage(['en-US'])
 const SESSION_LIMIT_MS = 9.5 * 60_000
 
 const SETUP_TIMEOUT_MS = 10_000
@@ -35,6 +40,7 @@ interface Options {
   sessionLimitMs?: number
   setTimer?: typeof setTimeout
   clearTimer?: typeof clearTimeout
+  languageCodes?: string[]
 }
 
 export class TranscribeLiveClient implements Transcriber {
@@ -61,12 +67,14 @@ export class TranscribeLiveClient implements Transcriber {
   private readonly sessionLimitMs: number
   private readonly setTimer: typeof setTimeout
   private readonly clearTimer: typeof clearTimeout
+  private readonly languageCodes: string[]
 
   constructor(private readonly apiKey: string, opts: Options = {}) {
     this.factory = opts.socketFactory ?? ((url) => new (globalThis as unknown as { WebSocket: new (url: string) => WebSocketLike }).WebSocket(url))
     this.sessionLimitMs = opts.sessionLimitMs ?? SESSION_LIMIT_MS
     this.setTimer = opts.setTimer ?? setTimeout
     this.clearTimer = opts.clearTimer ?? clearTimeout
+    this.languageCodes = opts.languageCodes ?? ['en-US']
   }
 
   async connect(cbs: TranscriberCallbacks): Promise<void> {
@@ -102,7 +110,7 @@ export class TranscribeLiveClient implements Transcriber {
       const doResolve = () => { if (settled) return; settled = true; clearSetupTimer(); resolve(ws) }
       const doReject = (err: Error) => { if (settled) return; settled = true; clearSetupTimer(); reject(err) }
       ws.onopen = () => {
-        ws.send(JSON.stringify(SETUP))
+        ws.send(JSON.stringify(setupMessage(this.languageCodes)))
         setupTimer = this.setTimer(() => {
           doReject(new Error('transcribe-live setup timed out'))
           try { ws.close() } catch { /* already closed */ }

@@ -1,5 +1,5 @@
 // The live server: browser mic ↔ LiveSounding ↔ Gemini. `npm run live`.
-//   npm run live -- [-i gemini|claude|recurrence] [--port 8787] [--from <audio>] [--fixture <name> --fake-transcriber] [--speed N] [--headless]
+//   npm run live -- [-i gemini|claude|recurrence] [--port 8787] [--from <audio>] [--fixture <name> --fake-transcriber] [--speed N] [--headless] [--lang <code|auto>]
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws'
 import { loadDotEnv } from '../cli/env'
 import { FIXTURES } from '../replay/fixtures/index'
@@ -13,7 +13,7 @@ import { streamFile } from './fake-mic'
 import type { Transcriber } from './transcriber'
 import type { FixtureScript } from '../replay/fixture'
 
-interface Args { interpreter: InterpreterName; port: number; from?: string; fixture?: string; fakeTranscriber: boolean; speed: number; headless: boolean }
+interface Args { interpreter: InterpreterName; port: number; from?: string; fixture?: string; fakeTranscriber: boolean; speed: number; headless: boolean; lang: string }
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -25,7 +25,7 @@ export function isAllowedOrigin(origin: string | undefined): boolean {
 }
 
 export function parseArgs(argv: string[]): Args {
-  const a: Args = { interpreter: 'gemini', port: 8787, fakeTranscriber: false, speed: 1, headless: false }
+  const a: Args = { interpreter: 'gemini', port: 8787, fakeTranscriber: false, speed: 1, headless: false, lang: 'en-US' }
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i], next = argv[i + 1]
     if (v === '-i') { if (!['gemini', 'claude', 'recurrence'].includes(next)) throw new Error(`-i must be gemini|claude|recurrence`); a.interpreter = next as InterpreterName; i++ }
@@ -35,6 +35,7 @@ export function parseArgs(argv: string[]): Args {
     else if (v === '--fake-transcriber') a.fakeTranscriber = true
     else if (v === '--speed') { a.speed = Number(next); if (!Number.isFinite(a.speed) || a.speed <= 0) throw new Error('--speed needs a positive number'); i++ }
     else if (v === '--headless') a.headless = true
+    else if (v === '--lang') { if (!next) throw new Error('--lang needs a code (or "auto")'); a.lang = next; i++ }
     else throw new Error(`unknown argument ${v}`)
   }
   if (a.fakeTranscriber && !a.fixture && !a.from) throw new Error('--fake-transcriber needs --fixture <name> or --from <audio>')
@@ -55,7 +56,7 @@ async function makeTranscriber(args: Args, clock: Clock): Promise<Transcriber> {
   }
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY is not set — get one at aistudio.google.com')
-  return new TranscribeLiveClient(key)
+  return new TranscribeLiveClient(key, { languageCodes: args.lang === 'auto' ? [] : [args.lang] })
 }
 
 async function runHeadless(args: Args): Promise<void> {
