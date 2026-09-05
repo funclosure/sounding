@@ -57,11 +57,12 @@ export function buildGeminiRequest(audio: AudioSegment): object {
       },
     ],
     generationConfig: {
-      // responseFormat/mimeType replaces the older, now-superseded
-      // response_mime_type flat field — the current audio-understanding
-      // structured-output sample nests it as response_format.text.mime_type
-      // (responseFormat.text.mimeType in the JS SDK's camelCase convention).
-      responseFormat: { text: { mimeType: 'application/json' } },
+      // Verified live 2026-09-05 against gemini-3.7-flash: the flat
+      // responseMimeType + responseSchema pair is accepted and yields schema-
+      // conformant JSON. The nested responseFormat.text.mimeType field also
+      // exists in v1beta but is an enum that rejects "application/json"
+      // (HTTP 400 INVALID_ARGUMENT), so it is not used here.
+      responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
     },
   }

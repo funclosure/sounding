@@ -1,6 +1,7 @@
 // cast: drop a recording through the pipeline and persist the sounding.
 //   npm run cast -- recordings/memo.m4a -i claude
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { loadDotEnv } from './env'
 import { join, dirname, basename } from 'node:path'
 import { transcribeRecording } from '../providers/whisper-transcription'
 import { ClaudeExtractionInterpreter } from '../providers/claude-extraction'
@@ -80,6 +81,7 @@ function formatFinalReading(events: readonly SoundingEvent[]): string {
 }
 
 async function main() {
+  loadDotEnv()
   const opts = parseCastArgs(process.argv.slice(2))
   const script = await loadOrTranscribe(opts.audioPath, opts.modelPath)
   console.log(`cast: ${script.segments.length} segments, ${(script.endT / 1000).toFixed(0)}s — interpreter ${opts.interpreter}`)
