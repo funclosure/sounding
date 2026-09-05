@@ -181,7 +181,7 @@
   .panel-left, .panel-right { grid-row: 1 / -1; position: relative; overflow: hidden; background: var(--sheet); border-color: var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; width: 0; transition: width 0.35s cubic-bezier(.2,.7,.2,1); }
   .resizing .panel-left, .resizing .panel-right { transition: none; }
   .panel-left { grid-column: 1; border-right: 1px solid var(--line); }
-  .panel-right { grid-column: 3; border-left: 1px solid var(--line); grid-template-rows: auto auto auto minmax(0, 1fr); }
+  .panel-right { grid-column: 3; border-left: 1px solid var(--line); grid-template-rows: auto minmax(0, 1fr); }
   .panel-left:not(.open), .panel-right:not(.open) { width: 0 !important; border-width: 0; }
   .panel-left h2, .panel-right h2 { margin: 0; padding: 18px 22px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome); font-weight: 400; }
   .panel-left .transcript { padding-bottom: 40px; }

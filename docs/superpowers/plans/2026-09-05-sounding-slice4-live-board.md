@@ -475,24 +475,32 @@ export function createPopover(anchor: HTMLElement, panel: HTMLElement) {
 `live.html` (desktop additions inside the screen root, alongside the sheet from Task 4):
 ```html
 <aside class="panel-left" aria-label="Transcript"><div class="grip" aria-hidden="true"></div><h2>Transcript</h2><div class="transcript" id="transcript-d"></div></aside>
-<aside class="panel-right" aria-label="Chart"><div class="grip" aria-hidden="true"></div><h2>Chart</h2><div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div><div class="surfaced" id="surfacedbox-d"></div><svg id="chartsvg-d" viewBox="0 0 390 560" preserveAspectRatio="none"></svg></aside>
+<aside class="panel-right" aria-label="Chart"><div class="grip" aria-hidden="true"></div><h2>Chart</h2><div class="chart"><div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div><div class="surfaced" id="surfacedbox-d"></div><svg id="chartsvg-d" viewBox="0 0 390 560" preserveAspectRatio="none"></svg></div></aside>
 <button class="edge left" aria-expanded="false" aria-controls="transcript-d">transcript <kbd>T</kbd></button>
 <button class="edge right" aria-expanded="false" aria-controls="chartsvg-d">chart <kbd>C</kbd></button>
 <div class="popover" id="context-pop" hidden><div class="context" id="context-d"></div></div>
 ```
 The narrow layout keeps its own `#transcript`, `#chartsvg`, `#surfacedbox`, `#context` inside the sheet. Two transcript renderers and two lane renderers are created; `live.ts` renders into **both** on every update (cheap: DOM rebuild is per-event, not per-frame) so switching layouts on resize needs no state transfer. The Context pane content is built once into whichever container is active via a `buildContext(el)` function called for both.
 
+The `.chart` wrapper around `.sub`/`.surfaced`/the chart `<svg>` in `.panel-right` is required, not decorative: every chart rule in `board.css` (lane areas, axis, playhead, ranked-list styling) is scoped under `.chart`, and the sheet's chart pane already has that wrapper — an earlier revision put the three desktop elements directly in the `.panel-right` aside, leaving the desktop chart unstyled.
+
 `board.css` desktop rules:
 ```css
 @media (min-width: 720px) {
-  .screen { display: grid; grid-template-rows: 54px minmax(0, 1fr) 150px; grid-template-columns: var(--left-w, 0px) minmax(0, 1fr) var(--right-w, 0px); }
+  /* `height: 100vh` (not just `min-height`) is required on `.screen` here:
+     without a definite block size on the grid container, the `minmax(0, 1fr)`
+     row has no available space to resolve against, so browsers size it to
+     its content's max-content height instead — and the panels' in-flow
+     transcript/chart content (unlike the board's absolutely-positioned
+     marks) has real height, which then inflates the whole page. */
+  .screen { display: grid; height: 100vh; grid-template-rows: 54px minmax(0, 1fr) 150px; grid-template-columns: var(--left-w, 0px) minmax(0, 1fr) var(--right-w, 0px); }
   .screen > .status, .screen > .controls { grid-column: 2; }
   .screen > .field, .screen > .heard { grid-column: 2; grid-row: 2; }
   .sheet, .scrim { display: none; }
   .panel-left, .panel-right { grid-row: 1 / -1; position: relative; overflow: hidden; background: var(--sheet); border-color: var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; width: 0; transition: width 0.35s cubic-bezier(.2,.7,.2,1); }
   .resizing .panel-left, .resizing .panel-right { transition: none; }
   .panel-left { grid-column: 1; border-right: 1px solid var(--line); }
-  .panel-right { grid-column: 3; border-left: 1px solid var(--line); grid-template-rows: auto auto auto minmax(0, 1fr); }
+  .panel-right { grid-column: 3; border-left: 1px solid var(--line); grid-template-rows: auto minmax(0, 1fr); }
   .panel-left:not(.open), .panel-right:not(.open) { width: 0 !important; border-width: 0; }
   .panel-left h2, .panel-right h2 { margin: 0; padding: 18px 22px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome); font-weight: 400; }
   .panel-left .transcript { padding-bottom: 40px; }
@@ -508,9 +516,11 @@ The narrow layout keeps its own `#transcript`, `#chartsvg`, `#surfacedbox`, `#co
   .popover { position: absolute; z-index: 9; width: min(440px, 80vw); transform: translate(-50%, 8px); opacity: 0; background: var(--sheet); border-radius: 18px; box-shadow: 0 16px 40px rgba(0,0,0,0.2); padding: 16px 18px 14px; transition: transform 0.25s ease, opacity 0.25s ease; }
   .popover.open { transform: translate(-50%, 0); opacity: 1; }
 }
-@media (max-width: 719.98px) { .panel-left, .panel-right, .edge, .popover { display: none !important; } }
+@media (max-width: 719.98px) { .panel-left, .panel-right, .edge, .popover, .ctxopen { display: none !important; } }
 ```
-The edge tabs and popover markup live in `live.html` but are hidden under 720 px; the sheet is hidden at ≥ 720 px.
+`.panel-right`'s own rows are just `auto minmax(0, 1fr)` (the `<h2>` heading, then the `.chart` wrapper) — the `.chart` grid rule in the base (non-desktop) stylesheet handles laying out `.sub`/`.surfaced`/the `<svg>` inside it, so `.panel-right` must not repeat those rows itself.
+
+The edge tabs and popover markup live in `live.html` but are hidden under 720 px; the sheet is hidden at ≥ 720 px. The `.screen` base grid rules (the single-column status/body/controls layout used below 720px) live in `board.css`, not `live.html` — `live.html`'s inline `<style>` only supplies page-level sizing (`html, body { height: 100% }`) and the `.screen` background/isolation rules that aren't part of the responsive grid, so the ≥720px media query here is the one and only place that overrides `display`/`grid-template-*` for `.screen`.
 
 `live.ts` layout controller:
 ```ts
@@ -527,7 +537,7 @@ const layout = {
 }
 mq.addEventListener('change', () => { contextPop.close(); sheet.set('peek'); board.relayout() })
 ```
-`drop()` calls `layout.closeContext()`. The "bring context" text button under the round control is shown while idle in both layouts (in the narrow layout it opens the sheet's Context tab).
+`drop()` calls `layout.closeContext()`. The "bring context" text button under the round control is shown while idle, but only on desktop — it's hidden below 720px (`@media (max-width: 719.98px) { ... .ctxopen { display: none !important } }`) because the popover it opens has no home on the sheet and the button would otherwise land under the sheet's peek strip; Context is still reachable below 720px via the sheet's own Context tab.
 
 - [ ] **Step 4: Verify** — `npx tsc --noEmit -p . && npm test && npm run build`. Browser check at 1280×800 with the fake transcriber: edge tabs toggle panels and the board reflows (marks stay inside the narrower field: check every `.mark` rect against `#field`'s rect); `T`/`C` keys work; dragging a grip resizes within limits and the width survives a reload (localStorage); the chart panel scrubs and `replaying · tap to return` behaves as in Task 4; "bring context" opens the popover, Escape closes it, Seed shows ghosts; surface opens the chart panel with the ranked list. Then resize the viewport to 390×800: panels vanish, the sheet works as in Task 4. Kill servers; delete logs; remove `.playwright-mcp/`.
 - [ ] **Step 5: Commit** — `feat(ui): desktop layout — transcript and chart as side panels, context as a popover` + trailer.

@@ -41,16 +41,28 @@ export function createPanels(
   const el = (side: Side) => root.querySelector<HTMLElement>(`.panel-${side}`)!
   const grip = (side: Side) => root.querySelector<HTMLElement>(`.panel-${side} .grip`)!
   const tab = (side: Side) => root.querySelector<HTMLElement>(`.edge.${side}`)!
+  // Effective width per side: the user's chosen width, clamped so the
+  // centre field (#field) keeps at least 320px even on a narrow window —
+  // computed against the *other* panel's own effective width so the two
+  // clamps don't reference each other's pre-clamp value.
+  function effectiveWidth(side: Side): number {
+    if (!state[side].open) return 0
+    const other: Side = side === 'left' ? 'right' : 'left'
+    const avail = root.clientWidth - (state[other].open ? state[other].width : 0) - 320
+    return Math.min(state[side].width, Math.max(specs[side].min, avail))
+  }
   function paint() {
     for (const side of ['left', 'right'] as Side[]) {
       const p = el(side)
-      p.style.width = `${state[side].width}px`
+      const w = effectiveWidth(side)
+      p.style.width = `${w}px`
       p.classList.toggle('open', state[side].open)
       tab(side).setAttribute('aria-expanded', String(state[side].open))
+      root.style.setProperty(`--${side}-w`, state[side].open ? `${w}px` : '0px')
     }
-    root.style.setProperty('--left-w', state.left.open ? `${state.left.width}px` : '0px')
-    root.style.setProperty('--right-w', state.right.open ? `${state.right.width}px` : '0px')
     try {
+      // Persist the user's chosen width, not the effective (viewport-clamped)
+      // one — resizing the window back out should restore what they picked.
       localStorage.setItem(KEY, encodeState(state))
     } catch {
       /* storage unavailable */
@@ -83,10 +95,14 @@ export function createPanels(
     g.addEventListener('pointerup', end)
     g.addEventListener('pointercancel', end)
   }
+  const desktopMq = window.matchMedia('(min-width: 720px)')
   document.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    if (!desktopMq.matches) return // the panels are hidden below 720px — T/C have no target to toggle
     if ((e.target as HTMLElement | null)?.closest?.('textarea, input')) return
     for (const side of ['left', 'right'] as Side[]) if (e.key.toLowerCase() === specs[side].key) open(side, !state[side].open)
   })
+  window.addEventListener('resize', paint)
   paint()
   return { open, isOpen: (side: Side) => state[side].open, toggle: (side: Side) => open(side, !state[side].open) }
 }

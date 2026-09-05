@@ -17,6 +17,7 @@ export function createPopover(anchor: HTMLElement, panel: HTMLElement): { open()
     on = true
     panel.hidden = false
     place()
+    void panel.offsetWidth // force layout so hidden -> visible is committed before .open starts the transition
     panel.classList.add('open')
     document.addEventListener('keydown', onKey)
     setTimeout(() => document.addEventListener('mousedown', onDoc), 0)

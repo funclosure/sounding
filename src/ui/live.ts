@@ -46,15 +46,21 @@ const lanes = createLanes(chartSvg)
 const transcriptD = createTranscript(transcriptElD)
 const lanesD = createLanes(chartSvgD)
 const sheet = createSheet(sheetRoot, { grab, tabs, body: sheetBody, scrim })
+const contextPop = createPopover(ctxOpenBtn, contextPopEl)
 const panels = createPanels(
   screen,
   {
     left: { side: 'left', min: 280, max: 560, default: 360, key: 't' },
     right: { side: 'right', min: 320, max: 720, default: 440, key: 'c' },
   },
-  () => board.relayout(),
+  () => {
+    board.relayout()
+    // A panel opening/closing/resizing moves the round control (the
+    // popover's anchor) since it lives in the centre field column — close
+    // the popover rather than leave it pointing at a stale position.
+    contextPop.close()
+  },
 )
-const contextPop = createPopover(ctxOpenBtn, contextPopEl)
 const mq = window.matchMedia('(min-width: 720px)')
 const layout = {
   isDesktop: () => mq.matches,
@@ -141,6 +147,12 @@ let lit: string | null = null
 // "ready" word from "surfaced" when the round control returns to idle.
 let surfacedOnce = false
 
+// The most recent 'listening'/'reconnecting' word from a live.status message,
+// so backToLive() can restore exactly what was showing instead of assuming
+// 'listening' (a scrub can return to the head while the transcriber is
+// mid-reconnect).
+let lastStatusWord: 'listening' | 'reconnecting' = 'listening'
+
 function setState(text: string, listening: boolean) {
   stateEl.textContent = text
   screen.classList.toggle('listening', listening)
@@ -179,6 +191,7 @@ function escapeHtml(s: string): string {
 // error/close, a failed setupAudio, or a clean stop) routes through this so
 // the mic is always released and the button always returns to rest.
 function finish(statusText: string, opts?: { keepStatusClass?: boolean }) {
+  if (replaying) backToLive()
   void teardownAudio()
   if (ws && ws.readyState === WebSocket.OPEN) ws.close()
   ws = null
@@ -262,21 +275,19 @@ function onMessage(m: LiveMessage) {
     if (m.state === 'error') {
       // A server-side error while starting, listening, or stopping means no
       // `stopped` reply is coming — finish now instead of waiting for one.
-      // If the user was mid-scrub, return to the head first: finish()'s
-      // status text and showSurfaced()'s chart both assume `replaying` is
-      // false, and otherwise the return-to-live affordance is stranded.
-      if (replaying) backToLive()
+      // finish() itself returns from a scrub first (its first statement),
+      // so the return-to-live affordance can't be stranded here.
       if (state !== 'idle') finish(`error: ${m.message ?? ''}`)
     } else if (m.state === 'stopped') {
-      // Same reasoning: a stop arriving while the user is scrubbing must
-      // return to the head first, so the surfaced chart reflects every
-      // reading received during the scrub, not just what was shown live.
-      if (replaying) backToLive()
+      // Same reasoning: finish() returns from a scrub before doing anything
+      // else, so the surfaced chart below reflects every reading received
+      // during the scrub, not just what was shown live.
       finish(`saved ${m.message ?? ''}`)
       showSurfaced()
     } else {
       setState(m.state, m.state === 'listening')
       if (m.state === 'listening') big.disabled = false
+      if (m.state === 'listening' || m.state === 'reconnecting') lastStatusWord = m.state
     }
     return
   }
@@ -359,7 +370,7 @@ function backToLive() {
   transcriptD.render(tm, true)
   rebuildLanes()
   clockEl.textContent = fmt(headT)
-  stateEl.textContent = state === 'live' ? 'listening' : state === 'idle' ? (surfacedOnce ? 'surfaced' : 'ready') : state
+  stateEl.textContent = state === 'live' ? lastStatusWord : state === 'idle' ? (surfacedOnce ? 'surfaced' : 'ready') : state
   screen.classList.toggle('listening', state === 'live')
   screen.classList.toggle('slack', state === 'live' && !!s?.slack)
 }
@@ -446,6 +457,7 @@ async function start() {
   shownT = 0
   lastShown = null
   lastBuildT = 0
+  lastStatusWord = 'listening'
   seenLabelIds.clear()
   labelOf.clear()
   lit = null
