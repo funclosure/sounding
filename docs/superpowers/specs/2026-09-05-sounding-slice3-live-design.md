@@ -199,8 +199,10 @@ of the replay instrument, so the two proofs of concept don't entangle:
   message; the session is surfaced and its log written so nothing is lost.
 - Interpreter call failure → already handled inside the providers (empty
   candidates, `costUsd 0`, stderr line); the session continues.
-- Missing `GEMINI_API_KEY` → server exits at startup with the same message
-  the cast CLI prints.
+- Missing `GEMINI_API_KEY` → in serve mode, reported per connection as a
+  `live.status error` when the browser sends `start` (the page shows it); in
+  headless mode with a real transcriber, the process exits non-zero with the
+  same message the cast CLI prints.
 
 ## Testing
 
