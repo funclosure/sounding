@@ -1,0 +1,11 @@
+#stage { position: relative; flex: 1; min-width: 0; }
+#stage #chart { width: 100%; height: 100%; display: block; }
+#heard { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.heard-word {
+  position: absolute; transform: translate(-50%, -50%) scale(1); opacity: 0.9;
+  font-size: 48px; font-weight: 600; color: #17323d; white-space: nowrap;
+  transition: transform 1.5s ease-out, opacity 1.5s ease-out;
+}
+.heard-word.fading { transform: translate(-50%, -50%) scale(0.25); opacity: 0; }
+#live-status { min-width: 14ch; color: #3d5a6a; font-variant-numeric: tabular-nums; }
+#live-status.listening { color: #c6472e; }

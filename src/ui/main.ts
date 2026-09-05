@@ -2,8 +2,8 @@
 import { createReplay } from '../replay/runner'
 import { FIXTURES } from '../replay/fixtures/index'
 import { summarizeCounters } from '../replay/counters'
-import { layoutReading } from './layout'
-import type { Reading, Transition, Ms } from '../core/types'
+import { createChart, fmt } from './chart'
+import type { Ms } from '../core/types'
 import { EventLog, type SoundingEvent } from '../core/events'
 
 const fixtureSelect = document.getElementById('fixture-select') as HTMLSelectElement
@@ -18,6 +18,7 @@ const inspector = document.getElementById('inspector')!
 const micInterp = document.getElementById('mic-interp') as HTMLSelectElement
 const recordBtn = document.getElementById('record') as HTMLButtonElement
 const micStatus = document.getElementById('mic-status')!
+const view = createChart({ chart, inspector, slackEl })
 
 for (const f of FIXTURES) {
   const opt = document.createElement('option')
@@ -33,8 +34,6 @@ let playing = false
 let lastFrameWallT = 0
 let advancing = false
 let renderedThrough = 0
-let selectedConceptId: string | null = null
-const history = new Map<string, Array<{ t: Ms; transition: Transition }>>()
 
 // A loaded .jsonl log stands in for the live runner: same clock, same
 // controls, but the readings come from a finished recording instead of
@@ -50,13 +49,9 @@ function reset() {
   playing = false
   advancing = false
   renderedThrough = 0
-  selectedConceptId = null
-  history.clear()
+  view.reset()
   playPause.textContent = 'Drop'
-  inspector.innerHTML = '<p>Click a mark to see its transition history.</p>'
-  chart.innerHTML = ''
   clockEl.textContent = '0:00'
-  slackEl.hidden = true
   countersEl.textContent = ''
   loadedReadings = null
   loadedIdx = 0
@@ -99,14 +94,14 @@ function dropLoaded() {
   if (speedSelect.value === '0') {
     playing = false // stop any in-flight streaming playback before the bulk rebuild below
     sessionT = loadedEvents.at(-1)?.t ?? 0
-    history.clear()
+    view.reset()
     // replay all transitions instantly
     for (const r of loadedReadings) {
-      recordTransitions(r.t, r.transitions)
+      view.recordTransitions(r.t, r.transitions)
     }
     loadedIdx = loadedReadings.length // frame()'s while loop must never re-walk what we just replayed
     const last = loadedReadings.at(-1)
-    if (last) renderReading(last.reading)
+    if (last) view.render(last.reading)
     clockEl.textContent = fmt(sessionT)
     playPause.textContent = 'Surfaced'
     return
@@ -139,20 +134,6 @@ playPause.addEventListener('click', async () => {
   lastFrameWallT = performance.now()
 })
 
-function fmt(t: Ms): string {
-  const s = Math.floor(t / 1000)
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
-/** Record each transition in `history`, keyed by the concept it lands on. */
-function recordTransitions(t: Ms, transitions: readonly Transition[]) {
-  for (const tr of transitions) {
-    const id = tr.kind === 'merged' ? tr.intoConceptId : tr.conceptId
-    if (!history.has(id)) history.set(id, [])
-    history.get(id)!.push({ t, transition: tr })
-  }
-}
-
 function consumeAndRender() {
   const events = replay.session.log.all()
   let latest: Extract<SoundingEvent, { type: 'reading.changed' }> | null = null
@@ -160,63 +141,14 @@ function consumeAndRender() {
     const e = events[i]
     if (e.type === 'reading.changed') {
       latest = e
-      recordTransitions(e.t, e.transitions)
+      view.recordTransitions(e.t, e.transitions)
     }
   }
   renderedThrough = events.length
-  if (latest) renderReading(latest.reading)
+  if (latest) view.render(latest.reading)
   const c = summarizeCounters(events)
   countersEl.textContent = `${c.callCount} calls · $${c.totalCostUsd.toFixed(4)} · mean ${Math.round(c.meanLatencyMs)}ms`
   clockEl.textContent = fmt(sessionT)
-}
-
-function renderReading(reading: Reading) {
-  slackEl.hidden = !reading.slack
-  const { width, height } = chart.getBoundingClientRect()
-  const placed = layoutReading(reading, Math.max(width, 200), Math.max(height, 200))
-  chart.innerHTML = ''
-  for (const p of placed) {
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-    g.setAttribute('class', p.conceptId === selectedConceptId ? 'mark selected' : 'mark')
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
-    circle.setAttribute('cx', String(p.x))
-    circle.setAttribute('cy', String(p.y))
-    circle.setAttribute('r', String(p.r))
-    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text')
-    text.setAttribute('x', String(p.x))
-    text.setAttribute('y', String(p.y + 4))
-    text.setAttribute('font-size', String(Math.max(11, p.r / 3)))
-    text.textContent = p.label
-    g.appendChild(circle)
-    g.appendChild(text)
-    g.addEventListener('click', () => {
-      selectedConceptId = p.conceptId
-      renderInspector(p.conceptId, p.label)
-      renderReading(reading)
-    })
-    chart.appendChild(g)
-  }
-}
-
-function describe(tr: Transition): string {
-  switch (tr.kind) {
-    case 'appeared': return 'appeared'
-    case 'nudged': return `nudged +${tr.delta}`
-    case 'displaced': return `displaced by ${tr.byConceptId}`
-    case 'merged': return `absorbed ${tr.fromConceptId}`
-  }
-}
-
-function renderInspector(conceptId: string, label: string) {
-  const entries = history.get(conceptId) ?? []
-  inspector.innerHTML = `<h2>${label} <small>(${conceptId})</small></h2>`
-  const ul = document.createElement('ul')
-  for (const { t, transition } of entries) {
-    const li = document.createElement('li')
-    li.textContent = `${fmt(t)} — ${describe(transition)}`
-    ul.appendChild(li)
-  }
-  inspector.appendChild(ul)
 }
 
 async function frame(wallT: number) {
@@ -228,10 +160,10 @@ async function frame(wallT: number) {
     let latest: (typeof loadedReadings)[number] | null = null
     while (loadedIdx < loadedReadings.length && loadedReadings[loadedIdx].t <= sessionT) {
       latest = loadedReadings[loadedIdx]
-      recordTransitions(latest.t, latest.transitions)
+      view.recordTransitions(latest.t, latest.transitions)
       loadedIdx += 1
     }
-    if (latest) renderReading(latest.reading)
+    if (latest) view.render(latest.reading)
     clockEl.textContent = fmt(sessionT)
     if (sessionT >= endT) {
       playing = false

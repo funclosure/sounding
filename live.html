@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sounding — live</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+    <link rel="stylesheet" href="/src/ui/live.css" />
+  </head>
+  <body>
+    <header>
+      <select id="live-interp" title="Interpreter">
+        <option value="gemini">gemini</option>
+        <option value="claude">claude</option>
+        <option value="recurrence">recurrence</option>
+      </select>
+      <button id="listen">Listen</button>
+      <span id="live-status"></span>
+      <span id="clock">0:00</span>
+      <span id="slack-indicator" hidden>slack</span>
+      <span id="counters"></span>
+    </header>
+    <main>
+      <div id="stage">
+        <svg id="chart"></svg>
+        <div id="heard"></div>
+      </div>
+      <aside id="inspector"><p>Click a mark to see its transition history.</p></aside>
+    </main>
+    <script type="module" src="/src/ui/live.ts"></script>
+  </body>
+</html>
