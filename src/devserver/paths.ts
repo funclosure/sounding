@@ -26,3 +26,11 @@ export function stampName(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `mic-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
 }
+
+/** Append `-2`, `-3`, … to `base` until `exists` reports the name is free. */
+export function uniqueName(base: string, exists: (name: string) => boolean): string {
+  if (!exists(base)) return base
+  let i = 2
+  while (exists(`${base}-${i}`)) i += 1
+  return `${base}-${i}`
+}

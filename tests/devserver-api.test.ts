@@ -1,13 +1,40 @@
 import { describe, it, expect } from 'vitest'
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { castArgv, soundingDevApi, handleCast, handleRecordingUpload } from '../src/devserver/api'
+import { castArgv, soundingDevApi, handleCast, handleRecordingUpload, isAllowedRequest } from '../src/devserver/api'
 
 describe('castArgv', () => {
-  it('runs the cast CLI through tsx with the recording path and interpreter', () => {
+  it('builds the tsx argv for the cast CLI with the recording path and interpreter', () => {
     expect(castArgv('mic-20260905-113007', 'gemini')).toEqual([
-      'tsx', 'src/cli/cast.ts', 'recordings/mic-20260905-113007.m4a', '-i', 'gemini',
+      'src/cli/cast.ts', 'recordings/mic-20260905-113007.m4a', '-i', 'gemini',
     ])
+  })
+})
+
+describe('isAllowedRequest', () => {
+  it('allows a same-origin JSON cast request', () => {
+    expect(isAllowedRequest('/api/cast', { 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' }))
+      .toEqual({ ok: true })
+  })
+  it('rejects a cross-site request', () => {
+    expect(isAllowedRequest('/api/cast', { 'sec-fetch-site': 'cross-site', 'content-type': 'application/json' }))
+      .toEqual({ ok: false, status: 403, error: 'cross-site request' })
+  })
+  it('allows a missing sec-fetch-site header (curl, direct navigation) with the right content-type', () => {
+    expect(isAllowedRequest('/api/cast', { 'content-type': 'application/json' }))
+      .toEqual({ ok: true })
+  })
+  it('rejects text/plain on cast', () => {
+    expect(isAllowedRequest('/api/cast', { 'content-type': 'text/plain' }))
+      .toEqual({ ok: false, status: 415, error: 'unsupported content-type' })
+  })
+  it('allows audio/webm on recordings', () => {
+    expect(isAllowedRequest('/api/recordings', { 'content-type': 'audio/webm' }))
+      .toEqual({ ok: true })
+  })
+  it('rejects text/plain on recordings', () => {
+    expect(isAllowedRequest('/api/recordings', { 'content-type': 'text/plain' }))
+      .toEqual({ ok: false, status: 415, error: 'unsupported content-type' })
   })
 })
 

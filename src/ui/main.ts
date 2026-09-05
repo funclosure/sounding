@@ -93,27 +93,33 @@ logFileInput.addEventListener('change', async () => {
   if (!ok) logFileInput.value = ''
 })
 
+/** The loaded-log part of a Drop click: play (or instantly surface) a loaded sounding log. */
+function dropLoaded() {
+  if (!loadedReadings) return
+  if (speedSelect.value === '0') {
+    playing = false // stop any in-flight streaming playback before the bulk rebuild below
+    sessionT = loadedEvents.at(-1)?.t ?? 0
+    history.clear()
+    // replay all transitions instantly
+    for (const r of loadedReadings) {
+      recordTransitions(r.t, r.transitions)
+    }
+    loadedIdx = loadedReadings.length // frame()'s while loop must never re-walk what we just replayed
+    const last = loadedReadings.at(-1)
+    if (last) renderReading(last.reading)
+    clockEl.textContent = fmt(sessionT)
+    playPause.textContent = 'Surfaced'
+    return
+  }
+  playing = !playing
+  playPause.textContent = playing ? 'Pause' : 'Resume'
+  lastFrameWallT = performance.now()
+}
+
 playPause.addEventListener('click', async () => {
   if (advancing || playPause.textContent === 'Surfaced') return // a sounding surfaces once; pick a fixture to re-drop
   if (loadedReadings) {
-    if (speedSelect.value === '0') {
-      playing = false // stop any in-flight streaming playback before the bulk rebuild below
-      sessionT = loadedEvents.at(-1)?.t ?? 0
-      history.clear()
-      // replay all transitions instantly
-      for (const r of loadedReadings) {
-        recordTransitions(r.t, r.transitions)
-      }
-      loadedIdx = loadedReadings.length // frame()'s while loop must never re-walk what we just replayed
-      const last = loadedReadings.at(-1)
-      if (last) renderReading(last.reading)
-      clockEl.textContent = fmt(sessionT)
-      playPause.textContent = 'Surfaced'
-      return
-    }
-    playing = !playing
-    playPause.textContent = playing ? 'Pause' : 'Resume'
-    lastFrameWallT = performance.now()
+    dropLoaded()
     return
   }
   if (speedSelect.value === '0') {
@@ -312,7 +318,13 @@ async function startRecording() {
     return
   }
   micChunks = []
-  recorder = new MediaRecorder(stream)
+  try {
+    recorder = new MediaRecorder(stream)
+  } catch (err) {
+    stream.getTracks().forEach((t) => t.stop())
+    setMic('idle', `error: recorder unavailable: ${err instanceof Error ? err.message : String(err)}`)
+    return
+  }
   recorder.ondataavailable = (e) => { if (e.data.size > 0) micChunks.push(e.data) }
   recorder.onstop = () => {
     stream.getTracks().forEach((t) => t.stop()) // clears the browser's recording indicator
@@ -340,6 +352,7 @@ async function saveAndCast(blob: Blob) {
     const res = await fetch(`/${log}`)
     if (!res.ok) throw new Error(`could not fetch ${log} (HTTP ${res.status})`)
     const ok = loadLogText(await res.text(), log)
+    if (ok) dropLoaded()
     setMic('idle', ok ? `loaded ${name}.${interpreter}` : `error: ${log} did not parse`)
   } catch (err) {
     stopMicTimer()
@@ -350,6 +363,7 @@ async function saveAndCast(blob: Blob) {
 recordBtn.addEventListener('click', () => {
   if (micState === 'idle') void startRecording()
   else if (micState === 'recording') {
+    stopMicTimer()
     setMic('saving', 'saving…')
     if (recorder?.state === 'recording') recorder.stop()
   }

@@ -5,6 +5,7 @@ import {
   recordingPath,
   soundingPath,
   stampName,
+  uniqueName,
 } from '../src/devserver/paths'
 
 describe('isValidRecordingName', () => {
@@ -48,5 +49,15 @@ describe('stampName', () => {
   it('formats local time as mic-YYYYMMDD-HHmmss', () => {
     const d = new Date(2026, 8, 5, 11, 30, 7) // local: 2026-09-05 11:30:07
     expect(stampName(d)).toBe('mic-20260905-113007')
+  })
+})
+
+describe('uniqueName', () => {
+  it('returns the base name when it does not exist', () => {
+    expect(uniqueName('mic-1', () => false)).toBe('mic-1')
+  })
+  it('appends -2, -3, … until a free name is found', () => {
+    const taken = new Set(['mic-1', 'mic-1-2'])
+    expect(uniqueName('mic-1', (n) => taken.has(n))).toBe('mic-1-3')
   })
 })

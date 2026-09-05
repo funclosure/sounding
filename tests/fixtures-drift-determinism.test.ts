@@ -50,6 +50,9 @@ describe('wall-clock guard', () => {
       }
     }
     // Pure engine only. src/providers, src/cli, src/ui are the I/O layer and exempt.
+    // src/devserver and src/ui are intentionally outside this guard too — they are
+    // the I/O boundary (dev API, browser mic capture, rAF loop); stampName(d) keeps
+    // the clock injected so the pure name-formatting logic stays testable.
     for (const dir of ['src/core', 'src/salience', 'src/interpret', 'src/replay']) walk(dir)
     expect(offenders).toEqual([])
   })

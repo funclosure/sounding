@@ -1,11 +1,12 @@
 // Dev-only Vite plugin: lets the replay UI save a mic recording and cast it.
 // Localhost only (Vite's default listener). API keys never pass through here —
 // the cast CLI child process loads .env itself.
-import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import {
   isValidRecordingName,
@@ -13,11 +14,44 @@ import {
   recordingPath,
   soundingPath,
   stampName,
+  uniqueName,
   type InterpreterName,
 } from './paths'
 
 export function castArgv(name: string, interp: InterpreterName): string[] {
-  return ['tsx', 'src/cli/cast.ts', recordingPath(name), '-i', interp]
+  return ['src/cli/cast.ts', recordingPath(name), '-i', interp]
+}
+
+const TSX_BIN = join(process.cwd(), 'node_modules', '.bin', 'tsx')
+
+/**
+ * Guards `/api/cast` and `/api/recordings` against cross-site simple POSTs.
+ * Vite's dev server has no CORS restriction on requests it accepts — only on
+ * what a cross-origin page can read back — so a `mode: 'no-cors'` POST from
+ * any web page reaches these handlers unless we reject it ourselves. Modern
+ * browsers send `Sec-Fetch-Site` on every request; curl and direct navigation
+ * send nothing, which we treat the same as `'none'` (top-level, no origin).
+ */
+export function isAllowedRequest(
+  url: string,
+  headers: IncomingHttpHeaders,
+): { ok: true } | { ok: false; status: number; error: string } {
+  const site = headers['sec-fetch-site']
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') {
+    return { ok: false, status: 403, error: 'cross-site request' }
+  }
+  const contentTypeHeader = headers['content-type']
+  const contentType = (Array.isArray(contentTypeHeader) ? contentTypeHeader[0] : contentTypeHeader) ?? ''
+  if (url === '/api/cast') {
+    if (!contentType.startsWith('application/json')) {
+      return { ok: false, status: 415, error: 'unsupported content-type' }
+    }
+  } else if (url === '/api/recordings') {
+    if (!contentType.startsWith('audio/') && contentType !== 'application/octet-stream') {
+      return { ok: false, status: 415, error: 'unsupported content-type' }
+    }
+  }
+  return { ok: true }
 }
 
 function readBody(req: IncomingMessage): Promise<Buffer> {
@@ -58,8 +92,10 @@ export async function handleRecordingUpload(req: IncomingMessage, res: ServerRes
   try {
     const bytes = await readBody(req)
     if (bytes.length === 0) return sendJson(res, 400, { error: 'empty upload' })
-    const name = stampName(new Date())
-    tmp = join(tmpdir(), `${name}.upload`)
+    // Two tabs stopping in the same second would otherwise collide on the
+    // same mic-YYYYMMDD-HHmmss stamp.
+    const name = uniqueName(stampName(new Date()), (n) => existsSync(recordingPath(n)))
+    tmp = join(tmpdir(), `${name}-${process.pid}-${randomBytes(4).toString('hex')}.upload`)
     writeFileSync(tmp, bytes)
     mkdirSync('recordings', { recursive: true })
     // MediaRecorder's streamed WebM has no seek index; transcode to a seekable
@@ -89,7 +125,7 @@ export async function handleCast(req: IncomingMessage, res: ServerResponse): Pro
   if (!isValidRecordingName(name)) return sendJson(res, 400, { error: 'invalid name' })
   if (!isInterpreterName(interpreter)) return sendJson(res, 400, { error: 'invalid interpreter' })
   try {
-    const r = await run('npx', castArgv(name, interpreter))
+    const r = await run(TSX_BIN, castArgv(name, interpreter))
     if (r.code !== 0) return sendJson(res, 500, { error: `${r.stderr.trim()}\nexit ${r.code}` })
     sendJson(res, 200, { log: soundingPath(name, interpreter), stdout: r.stdout })
   } catch (err) {
@@ -118,9 +154,11 @@ export function soundingDevApi(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (req.method !== 'POST') return next()
+        if (req.url !== '/api/recordings' && req.url !== '/api/cast') return next()
+        const allowed = isAllowedRequest(req.url, req.headers)
+        if (!allowed.ok) return sendJson(res, allowed.status, { error: allowed.error })
         if (req.url === '/api/recordings') return runHandler(handleRecordingUpload, req, res)
-        if (req.url === '/api/cast') return runHandler(handleCast, req, res)
-        next()
+        return runHandler(handleCast, req, res)
       })
     },
   }
