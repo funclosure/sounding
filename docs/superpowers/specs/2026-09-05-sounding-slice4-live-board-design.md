@@ -127,6 +127,35 @@ written as small TypeScript modules under `src/ui/board/` so the replay
 instrument can adopt them later. `src/ui/chart.ts` (the old circle
 renderer) stays for `/index.html` untouched.
 
+### 2b. Desktop layout: side panels, not a sheet (amendment, 2026-09-05)
+
+Victor: the sheet makes no sense on a desktop. On viewports **≥ 720 px wide**
+the page uses the width instead:
+
+- The **board** is the centre column, full height, status strip on top, the
+  round control centred at the bottom; it reflows (`board.relayout()`) as
+  panels open and close.
+- **Transcript** is a left panel (default 360 px, resizable 280–560 px by
+  dragging its inner edge). **Chart** is a right panel (default 440 px,
+  resizable 320–720 px). Each is toggled by a thin vertical edge tab on its
+  side of the window (the prototype's `transcript` / `chart` edge labels) or
+  by a key (`T`, `C`). Both may be open at once — that is the desktop
+  advantage: read the transcript and scrub the chart while the board moves.
+  Open state and widths are remembered per viewer in `localStorage`
+  (try/catch; defaults when unavailable).
+- **Context** is a popover anchored above the round control, opened by a
+  small "bring context" text button under it while idle; it holds the same
+  textarea, chips, Seed / Clear. It closes on drop and on Escape; seeds stay.
+- **Surface** opens the chart panel if it was closed and shows the ranked
+  final reading above the lanes.
+- The chart panel's lanes SVG fills the panel height; on wide panels the
+  30 s axis ticks stay readable (`preserveAspectRatio="none"` as before).
+
+Below 720 px the page uses the sheet exactly as section 2 describes. The
+switch is a CSS media query plus a small `layout` controller in the page that
+routes `showTab/open` calls to whichever container is active; the board,
+heard, transcript, lanes modules are shared unchanged.
+
 ### 3. Transcribe Live language
 
 `--lang en-US` (default) on the live server sets `languageCodes: ['en-US']`
