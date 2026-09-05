@@ -90,13 +90,23 @@ function serve(args: Args): void {
     // transcriber.connect() would leak the timers/socket start() registers
     // right after that await resolves.
     let starting: Promise<void> | null = null
+    // Tracks an in-flight `stop` so a racing `start` (a fresh `start`
+    // message arriving while the previous sounding is still draining and
+    // surfacing) waits for it to fully finish before creating a new
+    // LiveSounding on this connection — otherwise the old sounding's timers
+    // are still running when the new one starts pushing audio, and frames
+    // from both interleave into the ring/segmenter.
+    let stopping: Promise<void> | null = null
     const send = (m: LiveMessage) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)) }
     const stop = async () => {
       if (starting) { try { await starting } catch { /* start already reported its own error */ } }
       if (!live) return
       const l = live; live = null
-      try { const { logPath, summary } = await l.stop(); console.log(summary); console.log(`wrote ${logPath}`); send({ type: 'live.status', state: 'stopped', message: logPath }) }
-      catch (e) { send({ type: 'live.status', state: 'error', message: errMsg(e) }) }
+      stopping = (async () => {
+        try { const { logPath, summary } = await l.stop(); console.log(summary); console.log(`wrote ${logPath}`); send({ type: 'live.status', state: 'stopped', message: logPath }) }
+        catch (e) { send({ type: 'live.status', state: 'error', message: errMsg(e) }) }
+      })()
+      try { await stopping } finally { stopping = null }
     }
     ws.on('message', async (data: Buffer, isBinary: boolean) => {
       if (isBinary) { live?.pushAudio(new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length - (data.length % 2)))); return }
@@ -111,6 +121,10 @@ function serve(args: Args): void {
         const clock = new Clock(args.speed)
         starting = (async () => {
           const transcriber = await makeTranscriber({ ...args, interpreter }, clock)
+          // A prior sounding on this connection may still be draining and
+          // surfacing (stop() in flight); let it finish before this one
+          // starts pushing audio into a fresh LiveSounding.
+          if (stopping) { try { await stopping } catch { /* stop already reported its own error */ } }
           const soundingId = `live-${stampName(new Date()).slice(4)}.${interpreter}`
           const l = new LiveSounding({ interpreterName: interpreter, transcriber, clock, send, soundingId })
           live = l

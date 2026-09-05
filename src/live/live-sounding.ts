@@ -47,6 +47,13 @@ export class LiveSounding {
   private stopClock: (() => void) | null = null
   private stopIdle: (() => void) | null = null
   private stopped = false
+  /**
+   * Separate from `stopped`: onInterim/onFinal must keep running through
+   * `transcriber.end()`'s drain window (up to 3s), because that's exactly
+   * when the transcriber delivers the owed trailing final. Only set once
+   * `end()` has resolved and there is nothing left to arrive.
+   */
+  private callbacksClosed = false
   private stopPromise: Promise<{ logPath: string; summary: string }> | null = null
 
   constructor(private readonly opts: LiveSoundingOptions) {
@@ -105,12 +112,24 @@ export class LiveSounding {
     this.stopped = true
     this.stopClock?.(); this.stopIdle?.()
     try {
+      // While this is in flight, the transcriber may dispatch the drained
+      // trailing final (and further interims) through onInterim/onFinal —
+      // those must still run, so callbacksClosed is not set yet.
       await this.opts.transcriber.end()
     } catch (e) {
       // Still persist whatever the session captured even if the transcriber
       // can't be torn down cleanly.
       this.opts.send({ type: 'live.status', state: 'error', message: e instanceof Error ? e.message : String(e) })
     }
+    // Nothing more will arrive now: close the callbacks before surfacing.
+    // Any commit that onFinal/onInterim enqueued above is guaranteed to
+    // finish before this surface op runs — enqueue() chains synchronously
+    // onto the session's single op queue, so as long as the callback ran
+    // (even fire-and-forget) before end() resolved, its op is already ahead
+    // of surface's in that queue. run()'s flush() after this call then sends
+    // every event the drained final produced, in order, before we read the
+    // log to write it.
+    this.callbacksClosed = true
     await this.run(() => this.session.surface(this.opts.clock.now()))
     mkdirSync('soundings', { recursive: true })
     const logPath = join('soundings', `${this.opts.soundingId}.jsonl`)
@@ -121,7 +140,7 @@ export class LiveSounding {
   }
 
   private async onInterim(text: string): Promise<void> {
-    if (this.stopped) return
+    if (this.callbacksClosed) return
     const t = this.opts.clock.now()
     const { pendingDelta, commit } = this.segmenter.onInterim(t, text)
     // Enqueue every op this callback produces in the same synchronous turn,
@@ -142,7 +161,7 @@ export class LiveSounding {
   }
 
   private async onFinal(text: string): Promise<void> {
-    if (this.stopped) return
+    if (this.callbacksClosed) return
     const { commit } = this.segmenter.onFinal(this.opts.clock.now(), text)
     if (commit) await this.run(() => this.session.feedCommitted(commit.endT, commit))
   }

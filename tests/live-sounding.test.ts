@@ -32,6 +32,25 @@ class StubTranscriber implements Transcriber {
   async end(): Promise<void> {}
 }
 
+/**
+ * Mimics TranscribeLiveClient.drain(): when audio was sent since the last
+ * final, `end()` sends audioStreamEnd and dispatches the owed trailing final
+ * through onFinal *before* its own promise resolves. Real drain code does
+ * this synchronously inside the websocket's onmessage handler; this stub
+ * reproduces that ordering directly.
+ */
+class DrainingStubTranscriber implements Transcriber {
+  cbs: TranscriberCallbacks | null = null
+  async connect(cbs: TranscriberCallbacks): Promise<void> {
+    this.cbs = cbs
+    cbs.onStatus('listening')
+  }
+  sendAudio(): void {}
+  async end(): Promise<void> {
+    this.cbs?.onFinal('six seven eight nine ten')
+  }
+}
+
 const WORDS = Array.from({ length: 64 }, (_, i) => ['circle', 'loop', 'return', 'again', 'recur'][i % 5])
 const words = (n: number) => WORDS.slice(0, n).join(' ')
 
@@ -91,4 +110,54 @@ describe('LiveSounding — atomic pending+commit enqueue', () => {
       expect(emitted.some((e) => e.segmentId === c.segmentId), `no candidates.emitted for ${c.segmentId}`).toBe(true)
     }
   }, 15_000)
+})
+
+describe('LiveSounding — drained trailing final on stop', () => {
+  it('commits the final drained during transcriber.end() before surfacing', async () => {
+    const clock = new Clock(10)
+    const transcriber = new DrainingStubTranscriber()
+    const messages: LiveMessage[] = []
+    const soundingId = 'live-test-drained-final.recurrence'
+
+    const live = new LiveSounding({ interpreterName: 'recurrence', transcriber, clock, send: (m) => messages.push(m), soundingId })
+    try {
+      await live.start()
+      const cbs = transcriber.cbs
+      if (!cbs) throw new Error('transcriber never connected')
+
+      // A couple of interims well under the segmenter's 8s cut threshold, so
+      // nothing commits before stop() drains the trailing final.
+      await clock.sleep(500)
+      cbs.onInterim(words(10))
+      await clock.sleep(500)
+      cbs.onInterim(words(20))
+
+      // doStop() awaits transcriber.end(), which (like the real client's
+      // drain) dispatches the owed trailing final through onFinal before its
+      // own promise resolves.
+      await live.stop()
+    } finally {
+      const logPath = `soundings/${soundingId}.jsonl`
+      if (existsSync(logPath)) unlinkSync(logPath)
+    }
+
+    const errors = messages.filter((m) => m.type === 'live.status' && m.state === 'error')
+    expect(errors, JSON.stringify(errors)).toHaveLength(0)
+
+    const committedIdx = messages.findIndex(
+      (m): m is Extract<LiveMessage, { type: 'segment.committed' }> =>
+        m.type === 'segment.committed' && m.transcript === 'six seven eight nine ten',
+    )
+    expect(committedIdx, `no segment.committed for the drained final: ${JSON.stringify(messages.map((m) => m.type))}`).toBeGreaterThanOrEqual(0)
+    const committed = messages[committedIdx] as Extract<LiveMessage, { type: 'segment.committed' }>
+
+    const emittedIdx = messages.findIndex(
+      (m): m is Extract<LiveMessage, { type: 'candidates.emitted' }> =>
+        m.type === 'candidates.emitted' && m.segmentId === committed.segmentId,
+    )
+    expect(emittedIdx, 'no candidates.emitted for the drained final segment').toBeGreaterThan(committedIdx)
+
+    const surfacedIdx = messages.findIndex((m) => m.type === 'sounding.surfaced')
+    expect(surfacedIdx, 'no sounding.surfaced message').toBeGreaterThan(emittedIdx)
+  })
 })
