@@ -35,6 +35,10 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 interface RunResult { code: number | null; stdout: string; stderr: string }
 
 function run(cmd: string, args: string[]): Promise<RunResult> {
@@ -49,13 +53,14 @@ function run(cmd: string, args: string[]): Promise<RunResult> {
   })
 }
 
-async function handleRecordingUpload(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const bytes = await readBody(req)
-  if (bytes.length === 0) return sendJson(res, 400, { error: 'empty upload' })
-  const name = stampName(new Date())
-  const tmp = join(tmpdir(), `${name}.upload`)
-  writeFileSync(tmp, bytes)
+export async function handleRecordingUpload(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let tmp: string | undefined
   try {
+    const bytes = await readBody(req)
+    if (bytes.length === 0) return sendJson(res, 400, { error: 'empty upload' })
+    const name = stampName(new Date())
+    tmp = join(tmpdir(), `${name}.upload`)
+    writeFileSync(tmp, bytes)
     mkdirSync('recordings', { recursive: true })
     // MediaRecorder's streamed WebM has no seek index; transcode to a seekable
     // AAC .m4a (the same container Voice Memos produces) before anything else
@@ -64,28 +69,46 @@ async function handleRecordingUpload(req: IncomingMessage, res: ServerResponse):
     if (r.code !== 0) return sendJson(res, 500, { error: r.stderr || `ffmpeg exited ${r.code}` })
     sendJson(res, 200, { name })
   } catch (err) {
-    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+    sendJson(res, 500, { error: errMsg(err) })
   } finally {
-    try { unlinkSync(tmp) } catch { /* already gone */ }
+    if (tmp) { try { unlinkSync(tmp) } catch { /* already gone */ } }
   }
 }
 
-async function handleCast(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  let body: { name?: unknown; interpreter?: unknown }
+export async function handleCast(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let body: unknown
   try {
     body = JSON.parse((await readBody(req)).toString('utf8'))
   } catch {
     return sendJson(res, 400, { error: 'body must be JSON' })
   }
-  if (!isValidRecordingName(body.name)) return sendJson(res, 400, { error: 'invalid name' })
-  if (!isInterpreterName(body.interpreter)) return sendJson(res, 400, { error: 'invalid interpreter' })
-  try {
-    const r = await run('npx', castArgv(body.name, body.interpreter))
-    if (r.code !== 0) return sendJson(res, 500, { error: `${r.stderr.trim()}\nexit ${r.code}` })
-    sendJson(res, 200, { log: soundingPath(body.name, body.interpreter), stdout: r.stdout })
-  } catch (err) {
-    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return sendJson(res, 400, { error: 'body must be a JSON object' })
   }
+  const { name, interpreter } = body as { name?: unknown; interpreter?: unknown }
+  if (!isValidRecordingName(name)) return sendJson(res, 400, { error: 'invalid name' })
+  if (!isInterpreterName(interpreter)) return sendJson(res, 400, { error: 'invalid interpreter' })
+  try {
+    const r = await run('npx', castArgv(name, interpreter))
+    if (r.code !== 0) return sendJson(res, 500, { error: `${r.stderr.trim()}\nexit ${r.code}` })
+    sendJson(res, 200, { log: soundingPath(name, interpreter), stdout: r.stdout })
+  } catch (err) {
+    sendJson(res, 500, { error: errMsg(err) })
+  }
+}
+
+// No request path may leave a rejected promise dangling: every handler
+// invocation from the middleware goes through this backstop so a bug that
+// slips past a handler's own try/catch still gets a response instead of
+// crashing the process via an unhandled rejection.
+function runHandler(
+  handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  void handler(req, res).catch((err: unknown) => {
+    if (!res.headersSent) sendJson(res, 500, { error: errMsg(err) })
+  })
 }
 
 export function soundingDevApi(): Plugin {
@@ -95,8 +118,8 @@ export function soundingDevApi(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (req.method !== 'POST') return next()
-        if (req.url === '/api/recordings') return void handleRecordingUpload(req, res)
-        if (req.url === '/api/cast') return void handleCast(req, res)
+        if (req.url === '/api/recordings') return runHandler(handleRecordingUpload, req, res)
+        if (req.url === '/api/cast') return runHandler(handleCast, req, res)
         next()
       })
     },
