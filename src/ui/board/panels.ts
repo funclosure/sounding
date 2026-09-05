@@ -43,8 +43,10 @@ export function createPanels(
   const tab = (side: Side) => root.querySelector<HTMLElement>(`.edge.${side}`)!
   // Effective width per side: the user's chosen width, clamped so the
   // centre field (#field) keeps at least 320px even on a narrow window —
-  // computed against the *other* panel's own effective width so the two
-  // clamps don't reference each other's pre-clamp value.
+  // computed against the *other* panel's chosen (persisted) width, not its
+  // effective one, so the two clamps never reference each other. With both
+  // panels open on a narrow desktop window the field can fall below 320px
+  // (the minimums sum past the viewport) — a known constraint, close a panel.
   function effectiveWidth(side: Side): number {
     if (!state[side].open) return 0
     const other: Side = side === 'left' ? 'right' : 'left'
