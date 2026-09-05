@@ -140,7 +140,10 @@ export function laneSeries(readings: ReadingSnapshot[], endT: Ms): Array<{ id: s
     let cur = 0
     for (const r of readings) {
       const m = r.marks.find((x) => x.id === id)
-      const p = m ? m.p : 0
+      // Quantized to 3 decimals: floating-point drift in prominence would
+      // otherwise never compare equal to `cur`, adding two points per tick
+      // even when the value hasn't meaningfully changed.
+      const p = m ? Math.round(m.p * 1000) / 1000 : 0
       if (p !== cur) {
         points.push([r.t, cur])
         points.push([r.t, p])

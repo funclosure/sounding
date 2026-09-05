@@ -46,86 +46,12 @@
           radial-gradient(ellipse 60% 40% at 30% 35%, var(--ground-2) 0%, transparent 70%),
           radial-gradient(ellipse 50% 45% at 72% 62%, var(--ground-2) 0%, transparent 70%);
       }
-
-      /* status strip: state dot + word, clock, counters (no speed buttons — this is live) */
-      .status {
-        z-index: 2;
-        display: grid;
-        grid-template-columns: 1fr auto 1fr;
-        align-items: end;
-        padding: 14px 22px 0;
-        font-size: 11.5px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--chrome);
-      }
-      .status .state {
-        justify-self: start;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .status .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--chrome-2);
-      }
-      .screen.listening .status .dot {
-        background: var(--accent);
-        animation: breathe 1.6s ease-in-out infinite;
-      }
-      .screen.slack .status .dot {
-        background: var(--chrome-2);
-        animation: none;
-      }
-      .status .clock {
-        justify-self: center;
-        font-variant-numeric: tabular-nums;
-        font-size: 12px;
-        color: var(--ink);
-        letter-spacing: 0.08em;
-      }
-      .status .counters {
-        justify-self: end;
-        font-size: 11px;
-        letter-spacing: 0.04em;
-        color: var(--chrome-2);
-      }
-      @keyframes breathe {
-        0%,
-        100% {
-          transform: scale(1);
-          opacity: 1;
-        }
-        50% {
-          transform: scale(1.5);
-          opacity: 0.55;
-        }
-      }
-
-      /* on wide screens, centre the sheet's reading content; the board keeps the full width */
-      @media (min-width: 820px) {
-        .sheet .context,
-        .sheet .transcript,
-        .sheet .chart {
-          max-width: 760px;
-          margin-left: auto;
-          margin-right: auto;
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .status .dot {
-          animation: none;
-        }
-      }
     </style>
   </head>
   <body>
     <main class="screen" id="screen">
       <div class="status">
-        <div class="state"><span class="dot"></span><span id="state">ready</span></div>
+        <div class="state"><span class="dot"></span><span id="state" role="button" tabindex="0">ready</span></div>
         <div class="clock" id="clock">0:00</div>
         <div class="counters" id="counters"></div>
       </div>

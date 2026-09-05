@@ -119,6 +119,23 @@ describe('laneSeries', () => {
     expect(b.firstT).toBe(1000)
     expect(b.points.at(-1)).toEqual([3000, 0.3])
   })
+
+  it('quantizes prominence to 3 decimals so ulp drift adds no points', () => {
+    const readings: ReadingSnapshot[] = [
+      snap(0, [['a', 'Alpha', 0.3]]),
+      snap(1000, [['a', 'Alpha', 0.1 + 0.2]]), // 0.30000000000000004 in floating point, not 0.3
+      snap(2000, [['a', 'Alpha', 0.3]]),
+    ]
+    const series = laneSeries(readings, 3000)
+    const a = series.find((s) => s.id === 'a')!
+    // The 0 -> 0.3 step at t=0, then flat: no extra points from the
+    // 0.1 + 0.2 !== 0.3 floating-point drift at t=1000.
+    expect(a.points).toEqual([
+      [0, 0],
+      [0, 0.3],
+      [3000, 0.3],
+    ])
+  })
 })
 
 describe('ranked', () => {

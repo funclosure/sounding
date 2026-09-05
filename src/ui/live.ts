@@ -68,6 +68,12 @@ let replaying = false // true while the user scrubs; new events still accumulate
 let headT: Ms = 0 // latest event time seen
 let shownT: Ms = 0 // time the board currently displays
 let lastShown: ReadingSnapshot | null = null
+// Last time lanes.build() actually ran. reading.changed arrives every 100ms
+// and laneSeries scans every reading, so rebuilding on every tick is
+// quadratic over a session; a rebuild is warranted immediately on a
+// transition or a fresh candidate set, and otherwise at most once a second
+// just to keep the axis extending.
+let lastBuildT: Ms = 0
 
 // ---- context (display-only: seeds ghost marks, never sent to the server)
 let contextText = ''
@@ -87,10 +93,18 @@ function setState(text: string, listening: boolean) {
   screen.classList.toggle('listening', listening)
 }
 
-/** Mirrors the prototype's slack handling: dims the dot and swaps the word while live. */
+/**
+ * Mirrors the prototype's slack handling: dims the dot and swaps the word
+ * while live. Gated on the `listening` class (not the `live` business
+ * state) so a reading arriving while the transcriber is reconnecting can't
+ * clobber the `reconnecting` word — the `live` state covers all of
+ * connecting/listening/reconnecting, but only `listening` should ever have
+ * its status word or class touched here.
+ */
 function slackWord(slack: boolean) {
-  screen.classList.toggle('slack', slack && state === 'live')
-  if (state === 'live') stateEl.textContent = slack ? 'slack' : 'listening'
+  if (!screen.classList.contains('listening')) return
+  screen.classList.toggle('slack', slack)
+  stateEl.textContent = slack ? 'slack' : 'listening'
 }
 
 function matchesContext(label: string): boolean {
@@ -126,9 +140,22 @@ function finish(statusText: string, opts?: { keepStatusClass?: boolean }) {
   }
 }
 
+// Rebuilds the chart from every reading gathered so far, at the head. Used
+// whenever display returns to the head from a scrub (or the head itself
+// needs a full rebuild before being shown) — showLive's throttled build
+// only ever covers what was shown live, so a scrub, or a stop/error
+// interrupting one, needs a rebuild from the full `readings` array to be
+// complete.
+function rebuildLanes() {
+  lanes.build(laneSeries(readings, Math.max(headT, 1)), Math.max(headT, 1))
+  lanes.head(headT)
+  lastBuildT = headT
+}
+
 function showSurfaced() {
   surfacedOnce = true
   screen.classList.add('surfaced')
+  rebuildLanes()
   const last = readings.at(-1)
   if (last) {
     const items = ranked(last)
@@ -169,8 +196,16 @@ function onMessage(m: LiveMessage) {
     if (m.state === 'error') {
       // A server-side error while starting, listening, or stopping means no
       // `stopped` reply is coming — finish now instead of waiting for one.
+      // If the user was mid-scrub, return to the head first: finish()'s
+      // status text and showSurfaced()'s chart both assume `replaying` is
+      // false, and otherwise the return-to-live affordance is stranded.
+      if (replaying) backToLive()
       if (state !== 'idle') finish(`error: ${m.message ?? ''}`)
     } else if (m.state === 'stopped') {
+      // Same reasoning: a stop arriving while the user is scrubbing must
+      // return to the head first, so the surfaced chart reflects every
+      // reading received during the scrub, not just what was shown live.
+      if (replaying) backToLive()
       finish(`saved ${m.message ?? ''}`)
       showSurfaced()
     } else {
@@ -192,7 +227,7 @@ function onMessage(m: LiveMessage) {
       labelOf.set(mk.id, mk.label)
       if (seenLabelIds.has(mk.id)) continue
       seenLabelIds.add(mk.id)
-      if (contextText && !contextSeeds.some((s) => s.id === mk.id) && matchesContext(mk.label)) {
+      if (contextText && contextSeeds.length < 5 && !contextSeeds.some((s) => s.id === mk.id) && matchesContext(mk.label)) {
         contextSeeds = [...contextSeeds, { id: mk.id, label: mk.label }]
         board.seedGhosts(contextSeeds)
       }
@@ -214,7 +249,12 @@ function showLive(m: SoundingEvent) {
   if (m.type === 'segment.committed' || m.type === 'segment.pending') {
     transcript.render(transcriptAt(events, m.t), true)
   }
-  lanes.build(laneSeries(readings, Math.max(headT, 1)), Math.max(headT, 1))
+  const shouldRebuild =
+    m.type === 'candidates.emitted' || (m.type === 'reading.changed' && m.transitions.length > 0) || m.t - lastBuildT >= 1000
+  if (shouldRebuild) {
+    lanes.build(laneSeries(readings, Math.max(headT, 1)), Math.max(headT, 1))
+    lastBuildT = m.t
+  }
   lanes.head(m.t)
 }
 
@@ -240,7 +280,7 @@ function backToLive() {
   if (s) board.apply(s, { instant: true })
   lastShown = s
   transcript.render(transcriptAt(events, headT), true)
-  lanes.head(headT)
+  rebuildLanes()
   clockEl.textContent = fmt(headT)
   stateEl.textContent = state === 'live' ? 'listening' : state === 'idle' ? (surfacedOnce ? 'surfaced' : 'ready') : state
   screen.classList.toggle('listening', state === 'live' && !(s?.slack))
@@ -248,6 +288,11 @@ function backToLive() {
 }
 lanes.onScrub(showAt)
 stateEl.addEventListener('click', () => {
+  if (replaying) backToLive()
+})
+stateEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  e.preventDefault()
   if (replaying) backToLive()
 })
 
@@ -321,17 +366,20 @@ async function start() {
   headT = 0
   shownT = 0
   lastShown = null
+  lastBuildT = 0
   seenLabelIds.clear()
   labelOf.clear()
   lit = null
+  board.setLit(null)
+  lanes.setLit(null)
   hint.textContent = ''
-  // Each start() is a fresh session with a fresh identity space — concept
-  // ids from a previous session won't recur, so a ghost seeded against one
-  // would never get promoted and would linger beside a same-labelled but
-  // differently-id'd real mark. Drop the seeded ids but keep contextText:
-  // onMessage's first-appearance matcher re-seeds against the new session's
-  // ids as labels arrive, which is exactly the "seeding before Drop only
-  // stores the text" semantic.
+  // Each start() gets a fresh ReadingDynamics, whose concept ids are always
+  // `c1, c2, …` counting up from one — so ids *recur* every session, and a
+  // stale ghost left over from a previous session could get promoted by an
+  // unrelated concept that happens to land on the same id. Drop the seeded
+  // ids but keep contextText: onMessage's first-appearance matcher re-seeds
+  // against the new session's ids as labels arrive, which is exactly the
+  // "seeding before Drop only stores the text" semantic.
   contextSeeds = []
 
   board.clearGhosts() // also drops the board's own internal seed list, so reset() below doesn't reseed stale ids
