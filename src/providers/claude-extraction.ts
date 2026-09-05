@@ -16,6 +16,7 @@ const SYSTEM_PROMPT = `You listen to a person thinking aloud and report concept 
 
 Guidance:
 - Prefer what recurs or carries weight over what merely sounds like a topic. A named person, a specific memory, a repeated image, or an unresolved worry beats a tidy abstract noun. If someone talking through a job decision keeps mentioning their sister, "sister" is a candidate even though it isn't the "topic".
+- Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself. Report only the content being thought about.
 - Labels are short (1-4 words), in the speaker's own vocabulary where possible.
 - strength (0 to 1): how strongly THIS window of talk supports the concept — recurrence, centrality, emphasis.
 - confidence (0 to 1): how sure you are the concept is real and correctly labeled. Be honest: a missing candidate costs less than a wrong one.

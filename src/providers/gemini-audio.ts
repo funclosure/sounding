@@ -18,6 +18,7 @@ const AUDIO_PROMPT = `You are listening to a stretch of one person thinking alou
 Attend to the signals a transcript loses: emphasis, hesitation, pace changes, repetition with stress, the thing the voice keeps circling back to. Something said quickly in passing matters less than something said slowly, repeated, or stumbled over.
 
 Rules:
+- Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself. Report only the content being thought about.
 - Labels are short (1-4 words), in the speaker's own vocabulary where possible.
 - strength (0 to 1): how strongly this audio supports the concept (recurrence, centrality, vocal emphasis).
 - confidence (0 to 1): honesty required — a missing candidate costs less than a wrong one.

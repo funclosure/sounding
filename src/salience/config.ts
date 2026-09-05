@@ -17,7 +17,7 @@ export interface SalienceConfig {
 
 export const DEFAULT_SALIENCE_CONFIG: SalienceConfig = {
   capacity: 7,
-  halfLifeMs: 45_000,
+  halfLifeMs: 20_000, // 2026-09-05: 45s left dropped topics on the chart ~90s on a live memo; 20s clears filler in under a minute
   confidenceFloor: 0.3,
   hysteresisMargin: 0.15,
   hysteresisTicks: 5,

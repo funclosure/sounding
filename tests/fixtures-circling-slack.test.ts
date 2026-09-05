@@ -53,9 +53,12 @@ describe('slack fixture', () => {
     const atEnd = readings.at(-1)!
     const weightOf = (r: ReadingEvent, label: string) =>
       r.reading.marks.find((m) => m.label === label)?.weight ?? 0
-    // 45s of silence at a 45s half-life halves the weight; 0.6 margin keeps
-    // the assertion off the exact floating-point boundary.
-    expect(weightOf(atEnd, 'tomatoe')).toBeLessThan(weightOf(at25, 'tomatoe') * 0.6)
+    // 2026-09-05: at the old 45s half-life, 45s of silence halved the weight
+    // (0.6 margin kept the assertion off the exact 0.5 boundary). At the new
+    // 20s half-life (src/salience/config.ts), 45s of silence is 2.25
+    // half-lives — observed ratio 0.210 (2.06038 -> 0.43314) — so the bound
+    // is retightened to 0.25 off that exact value.
+    expect(weightOf(atEnd, 'tomatoe')).toBeLessThan(weightOf(at25, 'tomatoe') * 0.25)
   })
 
   it('slack turns on after the configured silence and was off during speech', async () => {
