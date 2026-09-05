@@ -15,6 +15,10 @@ import type { FixtureScript } from '../replay/fixture'
 
 interface Args { interpreter: InterpreterName; port: number; from?: string; fixture?: string; fakeTranscriber: boolean; speed: number; headless: boolean }
 
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
 export function parseArgs(argv: string[]): Args {
   const a: Args = { interpreter: 'gemini', port: 8787, fakeTranscriber: false, speed: 1, headless: false }
   for (let i = 0; i < argv.length; i++) {
@@ -30,6 +34,9 @@ export function parseArgs(argv: string[]): Args {
   }
   if (a.fakeTranscriber && !a.fixture && !a.from) throw new Error('--fake-transcriber needs --fixture <name> or --from <audio>')
   if (a.speed !== 1 && !a.fakeTranscriber) throw new Error('--speed is only valid with --fake-transcriber')
+  if (a.headless && !a.fixture && !a.from) throw new Error('--headless needs --fixture <name> or --from <audio>')
+  if (a.fixture && !a.fakeTranscriber) throw new Error('--fixture needs --fake-transcriber')
+  if (a.from && a.fixture) throw new Error('--from and --fixture are mutually exclusive')
   return a
 }
 
@@ -50,14 +57,26 @@ async function runHeadless(args: Args): Promise<void> {
   const clock = new Clock(args.speed)
   const transcriber = await makeTranscriber(args, clock)
   const soundingId = `live-${stampName(new Date()).slice(4)}.${args.interpreter}`
-  const live = new LiveSounding({ interpreterName: args.interpreter, transcriber, clock, send: () => {}, soundingId })
+  const live = new LiveSounding({
+    interpreterName: args.interpreter, transcriber, clock,
+    send: (m) => { if (m.type === 'live.status' && m.state === 'error') console.error(`[live] ${m.message}`) },
+    soundingId,
+  })
   await live.start()
   const script = args.fixture ? FIXTURES.find((f) => f.name === args.fixture) : undefined
-  if (args.from) await streamFile(args.from, clock, (pcm) => live.pushAudio(pcm))
-  else if (script) await clock.sleep(script.endT + 1500)
+  let streamError: unknown = null
+  try {
+    if (args.from) await streamFile(args.from, clock, (pcm) => live.pushAudio(pcm))
+    else if (script) await clock.sleep(script.endT + 1500)
+  } catch (e) {
+    streamError = e
+  }
+  // Persist whatever the session captured even if the mic feed failed.
   const { logPath, summary } = await live.stop()
   console.log(summary)
   console.log(`wrote ${logPath}`)
+  // Re-thrown as-is: the direct-run guard below prints it and exits non-zero.
+  if (streamError) throw streamError instanceof Error ? streamError : new Error(errMsg(streamError))
 }
 
 function serve(args: Args): void {
@@ -65,32 +84,48 @@ function serve(args: Args): void {
   console.log(`live server listening on ws://localhost:${args.port} — interpreter ${args.interpreter}${args.from ? `, fake mic from ${args.from}` : ''}`)
   wss.on('connection', (ws: WsSocket) => {
     let live: LiveSounding | null = null
-    let fakeMic: Promise<void> | null = null
+    // Tracks an in-flight `start` so a racing `stop` (an explicit stop
+    // message, or the socket closing) waits for it to fully settle before
+    // touching `live` — calling l.stop() while l.start() is still awaiting
+    // transcriber.connect() would leak the timers/socket start() registers
+    // right after that await resolves.
+    let starting: Promise<void> | null = null
     const send = (m: LiveMessage) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)) }
     const stop = async () => {
+      if (starting) { try { await starting } catch { /* start already reported its own error */ } }
       if (!live) return
       const l = live; live = null
       try { const { logPath, summary } = await l.stop(); console.log(summary); console.log(`wrote ${logPath}`); send({ type: 'live.status', state: 'stopped', message: logPath }) }
-      catch (e) { send({ type: 'live.status', state: 'error', message: e instanceof Error ? e.message : String(e) }) }
+      catch (e) { send({ type: 'live.status', state: 'error', message: errMsg(e) }) }
     }
     ws.on('message', async (data: Buffer, isBinary: boolean) => {
       if (isBinary) { live?.pushAudio(new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length - (data.length % 2)))); return }
       let msg: { type?: string; interpreter?: string }
       try { msg = JSON.parse(data.toString('utf8')) } catch { return }
-      if (msg.type === 'start' && !live) {
-        const interpreter = (['gemini', 'claude', 'recurrence'].includes(msg.interpreter ?? '') ? msg.interpreter : args.interpreter) as InterpreterName
+      if (msg.type === 'start' && !live && !starting) {
+        let interpreter = args.interpreter
+        if (msg.interpreter !== undefined) {
+          if ((['gemini', 'claude', 'recurrence'] as string[]).includes(msg.interpreter)) interpreter = msg.interpreter as InterpreterName
+          else send({ type: 'live.status', state: 'warning', message: `unknown interpreter ${msg.interpreter}, using ${interpreter}` })
+        }
         const clock = new Clock(args.speed)
-        try {
+        starting = (async () => {
           const transcriber = await makeTranscriber({ ...args, interpreter }, clock)
           const soundingId = `live-${stampName(new Date()).slice(4)}.${interpreter}`
-          live = new LiveSounding({ interpreterName: interpreter, transcriber, clock, send, soundingId })
-          await live.start()
-          if (args.from) fakeMic = streamFile(args.from, clock, (pcm) => live?.pushAudio(pcm)).then(stop)
-        } catch (e) { send({ type: 'live.status', state: 'error', message: e instanceof Error ? e.message : String(e) }); live = null }
+          const l = new LiveSounding({ interpreterName: interpreter, transcriber, clock, send, soundingId })
+          live = l
+          await l.start()
+          if (args.from) {
+            streamFile(args.from, clock, (pcm) => live?.pushAudio(pcm))
+              .then(stop)
+              .catch((e) => send({ type: 'live.status', state: 'error', message: errMsg(e) }))
+          }
+        })().catch((e) => { send({ type: 'live.status', state: 'error', message: errMsg(e) }); live = null })
+        await starting
+        starting = null
       } else if (msg.type === 'stop') await stop()
     })
     ws.on('close', () => void stop())
-    void fakeMic
   })
 }
 

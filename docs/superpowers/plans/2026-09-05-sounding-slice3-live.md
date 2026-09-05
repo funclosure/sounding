@@ -981,7 +981,7 @@ export class LiveSounding {
 }
 ```
 
-Important: `feedCommitted` awaits the interpreter (seconds). The session's internal queue serializes it, so clock ticks queue behind it and the log stays monotonic; the timestamps handed in are the ones captured when the event happened, so `advanceTo(now)` calls that were queued during a slow call catch up in order. The `flush` after each op forwards events in log order.
+Important: all session ops produced by one callback (e.g. `onInterim`'s pending delta and its commit) must be enqueued in the same synchronous turn, before awaiting any of them. The queue orders strictly by enqueue time, and the log requires monotonic timestamps, so awaiting an op before enqueueing the next one from the same callback lets later-stamped ops — ticks, or the next callback's — slip in between them on the queue. The `flush` after each op forwards events in log order.
 
 - [ ] **Step 5: Implement `fake-mic.ts`**
 

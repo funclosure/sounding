@@ -47,11 +47,19 @@ export class LiveSounding {
   private stopClock: (() => void) | null = null
   private stopIdle: (() => void) | null = null
   private stopped = false
+  private stopPromise: Promise<{ logPath: string; summary: string }> | null = null
 
   constructor(private readonly opts: LiveSoundingOptions) {
     const interpreter = makeInterpreter(opts.interpreterName)
     const config = { ...DEFAULT_SALIENCE_CONFIG }
     const dynamics = new ReadingDynamics(new EmbeddingIdentityResolver(config.similarityThreshold), config)
+    // This slice runs behind the session's op queue, not at commit time: if a
+    // prior interpreter call keeps the queue busy long enough, wall-clock time
+    // (and the ring's write head) moves on while this op waits its turn. The
+    // ring only holds a 30s window, so the queue delay from segment.endT to
+    // when this actually executes must stay under ~22s (30s window minus
+    // ~8s max segment length) or the requested window has partly or fully
+    // rolled off and slice() returns a truncated (or empty) clip.
     const audioSource = interpreter.input === 'audio'
       ? async (seg: { segmentId: string; startT: Ms; endT: Ms }) => ({
           kind: 'audio' as const, segmentId: seg.segmentId, mimeType: 'audio/wav',
@@ -71,6 +79,12 @@ export class LiveSounding {
       onFinal: (text) => void this.onFinal(text),
       onStatus: (state, message) => this.opts.send({ type: 'live.status', state, message }),
     })
+    // stop() may have raced us and already fired while connect() was in
+    // flight; don't register timers or leave the transcriber connected.
+    if (this.stopped) {
+      try { await transcriber.end() } catch { /* already stopping; nothing to report to */ }
+      return
+    }
     this.stopClock = clock.every(100, () => void this.run(() => this.session.advanceTo(clock.now())))
     this.stopIdle = clock.every(1000, () => void this.onIdle())
   }
@@ -81,10 +95,22 @@ export class LiveSounding {
     this.opts.transcriber.sendAudio(pcm)
   }
 
-  async stop(): Promise<{ logPath: string; summary: string }> {
+  /** Idempotent: a second call (e.g. an explicit stop racing ws close) returns the same result. */
+  stop(): Promise<{ logPath: string; summary: string }> {
+    if (!this.stopPromise) this.stopPromise = this.doStop()
+    return this.stopPromise
+  }
+
+  private async doStop(): Promise<{ logPath: string; summary: string }> {
     this.stopped = true
     this.stopClock?.(); this.stopIdle?.()
-    await this.opts.transcriber.end()
+    try {
+      await this.opts.transcriber.end()
+    } catch (e) {
+      // Still persist whatever the session captured even if the transcriber
+      // can't be torn down cleanly.
+      this.opts.send({ type: 'live.status', state: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
     await this.run(() => this.session.surface(this.opts.clock.now()))
     mkdirSync('soundings', { recursive: true })
     const logPath = join('soundings', `${this.opts.soundingId}.jsonl`)
@@ -95,22 +121,34 @@ export class LiveSounding {
   }
 
   private async onInterim(text: string): Promise<void> {
+    if (this.stopped) return
     const t = this.opts.clock.now()
     const { pendingDelta, commit } = this.segmenter.onInterim(t, text)
+    // Enqueue every op this callback produces in the same synchronous turn,
+    // before awaiting anything: the session queue orders by enqueue time and
+    // the log requires monotonic timestamps, so awaiting feedPending before
+    // enqueueing feedCommitted lets later-stamped ticks (or the next
+    // pending/commit) slip in ahead of a commit that is still waiting for a
+    // slow interpreter call — which then throws when it finally lands with an
+    // earlier timestamp than what the log already has.
+    const ops: Promise<void>[] = []
     if (pendingDelta) {
       const words = heardWords(pendingDelta)
       if (words.length) this.opts.send({ type: 'live.heard', t, words })
-      await this.run(() => this.session.feedPending(t, pendingDelta))
+      ops.push(this.run(() => this.session.feedPending(t, pendingDelta)))
     }
-    if (commit) await this.run(() => this.session.feedCommitted(commit.endT, commit))
+    if (commit) ops.push(this.run(() => this.session.feedCommitted(commit.endT, commit)))
+    await Promise.all(ops)
   }
 
   private async onFinal(text: string): Promise<void> {
+    if (this.stopped) return
     const { commit } = this.segmenter.onFinal(this.opts.clock.now(), text)
     if (commit) await this.run(() => this.session.feedCommitted(commit.endT, commit))
   }
 
   private async onIdle(): Promise<void> {
+    if (this.stopped) return
     const { commit } = this.segmenter.onIdle(this.opts.clock.now())
     if (commit) await this.run(() => this.session.feedCommitted(commit.endT, commit))
   }
