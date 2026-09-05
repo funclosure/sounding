@@ -367,3 +367,167 @@ The round control: `#big` click → same `start()` / `stop()` as today; the `lis
 - Spec coverage: engine (T1), language (T2), board/sheet/transcript/chart/heard/round control (T3+T4), scrub-while-live + back to live (T4), Context/Follow display-only (T4), surfaced sheet (T4), replay instrument untouched, no new wire messages.
 - Placeholders: T3's DOM ports say "port from the template, function by function" and name every source function; the template is in the repo, so this is a concrete instruction, not a TBD.
 - Type consistency: `ReadingSnapshot`, `Diff`, `TranscriptModel`, `laneSeries` return type, `Board`, `Detent` are used with the names defined in T3's interface block.
+
+---
+
+### Task 5: Desktop layout — side panels instead of the sheet (spec §2b)
+
+**Files:**
+- Create: `src/ui/board/panels.ts` (side panels: open/close, resize, persistence), `src/ui/board/popover.ts` (context popover)
+- Modify: `live.html` (both containers present; panels + edge tabs + popover markup), `src/ui/live.ts` (a `layout` controller that routes to sheet or panels), `src/ui/board/board.css` (desktop rules under `@media (min-width: 720px)`)
+- Test: `tests/board-panels.test.ts` (pure width clamp + persistence codec)
+
+**Interfaces:**
+- Consumes: Task 4's page (`live.ts` glue, `sheet`, `board.relayout()`), `createLanes`, `createTranscript`.
+- Produces:
+```ts
+// panels.ts
+export type Side = 'left' | 'right'
+export interface PanelSpec { side: Side; min: number; max: number; default: number; key: string }
+export function clampWidth(spec: PanelSpec, w: number): number
+export function encodeState(s: Record<Side, { open: boolean; width: number }>): string
+export function decodeState(raw: string | null, defaults: Record<Side, { open: boolean; width: number }>): Record<Side, { open: boolean; width: number }>
+export function createPanels(root: HTMLElement, specs: Record<Side, PanelSpec>, onChange: () => void): { open(side: Side, v?: boolean): void; isOpen(side: Side): boolean; toggle(side: Side): void }
+// popover.ts
+export function createPopover(anchor: HTMLElement, panel: HTMLElement): { open(): void; close(): void; isOpen(): boolean }
+// live.ts (internal)
+const layout = { showTranscript(): void; showChart(): void; showContext(): void; closeContext(): void; onSurfaced(): void; isDesktop(): boolean }
+```
+
+- [ ] **Step 1: Tests first** — `tests/board-panels.test.ts`: `clampWidth` clamps to `[min,max]` and returns `default` for NaN; `encodeState`/`decodeState` round-trip, and `decodeState` returns defaults for `null`, invalid JSON, or wrong shapes.
+- [ ] **Step 2: RED.**
+- [ ] **Step 3: Implement.**
+
+`src/ui/board/panels.ts`:
+```ts
+export type Side = 'left' | 'right'
+export interface PanelSpec { side: Side; min: number; max: number; default: number; key: string }
+export type PanelState = Record<Side, { open: boolean; width: number }>
+
+export function clampWidth(spec: PanelSpec, w: number): number {
+  if (!Number.isFinite(w)) return spec.default
+  return Math.max(spec.min, Math.min(spec.max, Math.round(w)))
+}
+export function encodeState(s: PanelState): string { return JSON.stringify(s) }
+export function decodeState(raw: string | null, defaults: PanelState): PanelState {
+  if (!raw) return defaults
+  try {
+    const p = JSON.parse(raw) as Partial<PanelState>
+    const pick = (side: Side) => {
+      const v = p?.[side]
+      return v && typeof v.open === 'boolean' && Number.isFinite(v.width) ? { open: v.open, width: v.width } : defaults[side]
+    }
+    return { left: pick('left'), right: pick('right') }
+  } catch { return defaults }
+}
+
+const KEY = 'sounding.panels'
+export function createPanels(root: HTMLElement, specs: Record<Side, PanelSpec>, onChange: () => void) {
+  const defaults: PanelState = { left: { open: false, width: specs.left.default }, right: { open: false, width: specs.right.default } }
+  let state: PanelState
+  try { state = decodeState(localStorage.getItem(KEY), defaults) } catch { state = defaults }
+  state.left.width = clampWidth(specs.left, state.left.width); state.right.width = clampWidth(specs.right, state.right.width)
+  const el = (side: Side) => root.querySelector<HTMLElement>(`.panel-${side}`)!
+  const grip = (side: Side) => root.querySelector<HTMLElement>(`.panel-${side} .grip`)!
+  const tab = (side: Side) => root.querySelector<HTMLElement>(`.edge.${side}`)!
+  function paint() {
+    for (const side of ['left', 'right'] as Side[]) {
+      const p = el(side); p.style.width = `${state[side].width}px`; p.classList.toggle('open', state[side].open)
+      tab(side).setAttribute('aria-expanded', String(state[side].open))
+    }
+    root.style.setProperty('--left-w', state.left.open ? `${state.left.width}px` : '0px')
+    root.style.setProperty('--right-w', state.right.open ? `${state.right.width}px` : '0px')
+    try { localStorage.setItem(KEY, encodeState(state)) } catch { /* storage unavailable */ }
+    onChange()
+  }
+  function open(side: Side, v = true) { state[side].open = v; paint() }
+  for (const side of ['left', 'right'] as Side[]) {
+    tab(side).addEventListener('click', () => open(side, !state[side].open))
+    let drag: { x: number; w: number } | null = null
+    const g = grip(side)
+    g.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, w: state[side].width }; g.setPointerCapture(e.pointerId); root.classList.add('resizing') })
+    g.addEventListener('pointermove', (e) => { if (!drag) return; const dx = e.clientX - drag.x; state[side].width = clampWidth(specs[side], side === 'left' ? drag.w + dx : drag.w - dx); paint() })
+    const end = () => { drag = null; root.classList.remove('resizing') }
+    g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end)
+  }
+  document.addEventListener('keydown', (e) => {
+    if ((e.target as HTMLElement | null)?.closest?.('textarea, input')) return
+    for (const side of ['left', 'right'] as Side[]) if (e.key.toLowerCase() === specs[side].key) open(side, !state[side].open)
+  })
+  paint()
+  return { open, isOpen: (side: Side) => state[side].open, toggle: (side: Side) => open(side, !state[side].open) }
+}
+```
+
+`src/ui/board/popover.ts`:
+```ts
+export function createPopover(anchor: HTMLElement, panel: HTMLElement) {
+  let on = false
+  const place = () => { const a = anchor.getBoundingClientRect(); const host = panel.offsetParent as HTMLElement | null; const h = host ? host.getBoundingClientRect() : { left: 0, top: 0 }; panel.style.left = `${a.left + a.width / 2 - h.left}px`; panel.style.bottom = `${(h.top + (host?.clientHeight ?? window.innerHeight)) - a.top + 12}px` }
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+  const onDoc = (e: MouseEvent) => { if (!panel.contains(e.target as Node) && e.target !== anchor && !anchor.contains(e.target as Node)) close() }
+  function open() { on = true; panel.hidden = false; place(); panel.classList.add('open'); document.addEventListener('keydown', onKey); setTimeout(() => document.addEventListener('mousedown', onDoc), 0); window.addEventListener('resize', place) }
+  function close() { if (!on) return; on = false; panel.classList.remove('open'); setTimeout(() => { if (!on) panel.hidden = true }, 250); document.removeEventListener('keydown', onKey); document.removeEventListener('mousedown', onDoc); window.removeEventListener('resize', place) }
+  return { open, close, isOpen: () => on }
+}
+```
+
+`live.html` (desktop additions inside the screen root, alongside the sheet from Task 4):
+```html
+<aside class="panel-left" aria-label="Transcript"><div class="grip" aria-hidden="true"></div><h2>Transcript</h2><div class="transcript" id="transcript-d"></div></aside>
+<aside class="panel-right" aria-label="Chart"><div class="grip" aria-hidden="true"></div><h2>Chart</h2><div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div><div class="surfaced" id="surfacedbox-d"></div><svg id="chartsvg-d" viewBox="0 0 390 560" preserveAspectRatio="none"></svg></aside>
+<button class="edge left" aria-expanded="false" aria-controls="transcript-d">transcript <kbd>T</kbd></button>
+<button class="edge right" aria-expanded="false" aria-controls="chartsvg-d">chart <kbd>C</kbd></button>
+<div class="popover" id="context-pop" hidden><div class="context" id="context-d"></div></div>
+```
+The narrow layout keeps its own `#transcript`, `#chartsvg`, `#surfacedbox`, `#context` inside the sheet. Two transcript renderers and two lane renderers are created; `live.ts` renders into **both** on every update (cheap: DOM rebuild is per-event, not per-frame) so switching layouts on resize needs no state transfer. The Context pane content is built once into whichever container is active via a `buildContext(el)` function called for both.
+
+`board.css` desktop rules:
+```css
+@media (min-width: 720px) {
+  .screen { display: grid; grid-template-rows: 54px minmax(0, 1fr) 150px; grid-template-columns: var(--left-w, 0px) minmax(0, 1fr) var(--right-w, 0px); }
+  .screen > .status, .screen > .controls { grid-column: 2; }
+  .screen > .field, .screen > .heard { grid-column: 2; grid-row: 2; }
+  .sheet, .scrim { display: none; }
+  .panel-left, .panel-right { grid-row: 1 / -1; position: relative; overflow: hidden; background: var(--sheet); border-color: var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; width: 0; transition: width 0.35s cubic-bezier(.2,.7,.2,1); }
+  .resizing .panel-left, .resizing .panel-right { transition: none; }
+  .panel-left { grid-column: 1; border-right: 1px solid var(--line); }
+  .panel-right { grid-column: 3; border-left: 1px solid var(--line); grid-template-rows: auto auto auto minmax(0, 1fr); }
+  .panel-left:not(.open), .panel-right:not(.open) { width: 0 !important; border-width: 0; }
+  .panel-left h2, .panel-right h2 { margin: 0; padding: 18px 22px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome); font-weight: 400; }
+  .panel-left .transcript { padding-bottom: 40px; }
+  .panel-right svg { min-height: 0; }
+  .grip { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 2; }
+  .panel-left .grip { right: -4px; } .panel-right .grip { left: -4px; }
+  .edge { all: unset; cursor: pointer; position: absolute; top: 50%; z-index: 6; font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome-2); writing-mode: vertical-rl; transform: translateY(-50%); padding: 10px 4px; opacity: 0.8; }
+  .edge kbd { font: inherit; opacity: 0.6; margin-top: 8px; }
+  .edge.left { left: 6px; transform: translateY(-50%) rotate(180deg); }
+  .edge.right { right: 6px; }
+  .edge[aria-expanded="true"] { color: var(--ink); }
+  .edge:focus-visible { outline: 2px solid var(--accent); }
+  .popover { position: absolute; z-index: 9; width: min(440px, 80vw); transform: translate(-50%, 8px); opacity: 0; background: var(--sheet); border-radius: 18px; box-shadow: 0 16px 40px rgba(0,0,0,0.2); padding: 16px 18px 14px; transition: transform 0.25s ease, opacity 0.25s ease; }
+  .popover.open { transform: translate(-50%, 0); opacity: 1; }
+}
+@media (max-width: 719.98px) { .panel-left, .panel-right, .edge, .popover { display: none !important; } }
+```
+The edge tabs and popover markup live in `live.html` but are hidden under 720 px; the sheet is hidden at ≥ 720 px.
+
+`live.ts` layout controller:
+```ts
+const mq = window.matchMedia('(min-width: 720px)')
+const panels = createPanels(screen, { left: { side: 'left', min: 280, max: 560, default: 360, key: 't' }, right: { side: 'right', min: 320, max: 720, default: 440, key: 'c' } }, () => board.relayout())
+const contextPop = createPopover(ctxButton, document.getElementById('context-pop')!)
+const layout = {
+  isDesktop: () => mq.matches,
+  showTranscript() { if (mq.matches) panels.open('left'); else { sheet.showTab('transcript'); sheet.set('medium') } },
+  showChart() { if (mq.matches) panels.open('right'); else { sheet.showTab('chart'); sheet.set('medium') } },
+  showContext() { if (mq.matches) contextPop.open(); else { sheet.showTab('context'); sheet.set('medium') } },
+  closeContext() { contextPop.close() },
+  onSurfaced() { this.showChart() },
+}
+mq.addEventListener('change', () => { contextPop.close(); sheet.set('peek'); board.relayout() })
+```
+`drop()` calls `layout.closeContext()`. The "bring context" text button under the round control is shown while idle in both layouts (in the narrow layout it opens the sheet's Context tab).
+
+- [ ] **Step 4: Verify** — `npx tsc --noEmit -p . && npm test && npm run build`. Browser check at 1280×800 with the fake transcriber: edge tabs toggle panels and the board reflows (marks stay inside the narrower field: check every `.mark` rect against `#field`'s rect); `T`/`C` keys work; dragging a grip resizes within limits and the width survives a reload (localStorage); the chart panel scrubs and `replaying · tap to return` behaves as in Task 4; "bring context" opens the popover, Escape closes it, Seed shows ghosts; surface opens the chart panel with the ranked list. Then resize the viewport to 390×800: panels vanish, the sheet works as in Task 4. Kill servers; delete logs; remove `.playwright-mcp/`.
+- [ ] **Step 5: Commit** — `feat(ui): desktop layout — transcript and chart as side panels, context as a popover` + trailer.
