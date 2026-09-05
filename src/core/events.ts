@@ -4,6 +4,8 @@ export type SoundingEvent =
   | { type: 'sounding.dropped'; t: Ms; soundingId: string }
   | { type: 'segment.pending'; t: Ms; text: string }
   | { type: 'segment.committed'; t: Ms; segmentId: string; transcript: string; startT: Ms; endT: Ms }
+  // `t` is when the candidates were applied — the segment time in replay,
+  // the arrival time live; `latencyMs` measures the interpreter call itself.
   | { type: 'candidates.emitted'; t: Ms; segmentId: string; source: string; candidates: ConceptCandidate[]; costUsd: number; latencyMs: number }
   | { type: 'reading.changed'; t: Ms; transitions: Transition[]; reading: Reading }
   | { type: 'sounding.surfaced'; t: Ms }

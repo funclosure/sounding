@@ -60,13 +60,15 @@ export class LiveSounding {
     const interpreter = makeInterpreter(opts.interpreterName)
     const config = { ...DEFAULT_SALIENCE_CONFIG }
     const dynamics = new ReadingDynamics(new EmbeddingIdentityResolver(config.similarityThreshold), config)
-    // This slice runs behind the session's op queue, not at commit time: if a
-    // prior interpreter call keeps the queue busy long enough, wall-clock time
-    // (and the ring's write head) moves on while this op waits its turn. The
-    // ring only holds a 30s window, so the queue delay from segment.endT to
-    // when this actually executes must stay under ~22s (30s window minus
-    // ~8s max segment length) or the requested window has partly or fully
-    // rolled off and slice() returns a truncated (or empty) clip.
+    // This slice runs behind the session's op queue, not at commit time: op A
+    // is no longer stuck behind a prior interpreter call, but it can still
+    // wait behind a prior op B's applyCandidates (the embedding call), and
+    // wall-clock time (and the ring's write head) moves on while it waits its
+    // turn. The ring only holds a 30s window, so the queue delay from
+    // segment.endT to when this actually executes must stay under ~22s (30s
+    // window minus ~8s max segment length) or the requested window has
+    // partly or fully rolled off and slice() returns a truncated (or empty)
+    // clip.
     const audioSource = interpreter.input === 'audio'
       ? async (seg: { segmentId: string; startT: Ms; endT: Ms }) => ({
           kind: 'audio' as const, segmentId: seg.segmentId, mimeType: 'audio/wav',
@@ -122,13 +124,14 @@ export class LiveSounding {
       this.opts.send({ type: 'live.status', state: 'error', message: e instanceof Error ? e.message : String(e) })
     }
     // Nothing more will arrive now: close the callbacks before surfacing.
-    // Any commit that onFinal/onInterim enqueued above is guaranteed to
-    // finish before this surface op runs — enqueue() chains synchronously
-    // onto the session's single op queue, so as long as the callback ran
-    // (even fire-and-forget) before end() resolved, its op is already ahead
-    // of surface's in that queue. run()'s flush() after this call then sends
-    // every event the drained final produced, in order, before we read the
-    // log to write it.
+    // Any commit that onFinal/onInterim triggered above is guaranteed to
+    // finish before this surface op runs — not because its op is already
+    // ahead of surface's in the queue (the interpreter call it's waiting on
+    // runs outside the queue, so at the moment we get here it may not even
+    // be enqueued yet), but because session.surface() tracks every in-flight
+    // feedCommitted and awaits them all before it enqueues its own op.
+    // run()'s flush() after this call then sends every event the drained
+    // final produced, in order, before we read the log to write it.
     this.callbacksClosed = true
     await this.run(() => this.session.surface(this.opts.clock.now()))
     mkdirSync('soundings', { recursive: true })
@@ -147,9 +150,9 @@ export class LiveSounding {
     // before awaiting anything: the session queue orders by enqueue time and
     // the log requires monotonic timestamps, so awaiting feedPending before
     // enqueueing feedCommitted lets later-stamped ticks (or the next
-    // pending/commit) slip in ahead of a commit that is still waiting for a
-    // slow interpreter call — which then throws when it finally lands with an
-    // earlier timestamp than what the log already has.
+    // pending/commit) slip into the queue ahead of this commit's op A — which
+    // then throws when it finally lands with an earlier timestamp than what
+    // the log already has.
     const ops: Promise<void>[] = []
     if (pendingDelta) {
       const words = heardWords(pendingDelta)

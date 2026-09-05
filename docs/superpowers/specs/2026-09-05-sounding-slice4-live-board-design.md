@@ -53,9 +53,15 @@ keep moving while the model is thinking. Concretely:
 op A (queued):  advanceNow(t); append segment.committed; input = buildInput(seg)
                 (returns input)
 (unqueued):     result = await interpreter.interpret(input)
-op B (queued):  tA = max(t, latestT); advanceNow(tA);
+                tA = max(t, latestT)
+op B (queued):  advanceNow(tA);
                 append candidates.emitted { t: tA, … }; await dynamics.applyCandidates(tA, …)
 ```
+
+`tA` is captured at arrival, right after the unqueued await resolves and
+before op B is enqueued — not recomputed inside op B once it is dequeued —
+so that ops already queued behind B with smaller `t` (a `feedPending`, or
+another commit's op A) still append monotonically.
 
 `latestT` is the largest timestamp the session has been asked to advance to
 (`advanceTo`, `feedPending`, `feedCommitted`, `surface` all raise it).

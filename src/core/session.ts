@@ -82,8 +82,11 @@ export class SoundingSession {
         return this.buildInput(seg)
       })
       const result = await this.interpreter.interpret(input)
+      // Stamp op B's timestamp now, at arrival, not when it is later dequeued:
+      // an op already queued behind this one (a smaller-t feedPending, or
+      // another commit's op A) must still see a monotonic tA when it runs.
+      const tA = Math.max(t, this.latestT)
       await this.enqueue(async () => {
-        const tA = Math.max(t, this.latestT)
         this.advanceNow(tA)
         this.log.append({
           type: 'candidates.emitted', t: tA, segmentId: seg.segmentId, source: this.interpreter.id,
@@ -102,9 +105,10 @@ export class SoundingSession {
   async surface(t: Ms): Promise<void> {
     this.touch(t)
     while (this.inFlight.size) await Promise.all([...this.inFlight])
+    const tS = Math.max(t, this.latestT)
     await this.enqueue(() => {
-      this.advanceNow(Math.max(t, this.latestT))
-      this.log.append({ type: 'sounding.surfaced', t: Math.max(t, this.latestT) })
+      this.advanceNow(tS)
+      this.log.append({ type: 'sounding.surfaced', t: tS })
     })
   }
 

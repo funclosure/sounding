@@ -183,8 +183,10 @@ Replace `feedCommitted`, `surface`, `processCommitted`, and the timestamp bookke
         return this.buildInput(seg)
       })
       const result = await this.interpreter.interpret(input)
+      // captured at arrival so that ops already queued behind B with
+      // smaller t still append monotonically
+      const tA = Math.max(t, this.latestT)
       await this.enqueue(async () => {
-        const tA = Math.max(t, this.latestT)
         this.advanceNow(tA)
         this.log.append({
           type: 'candidates.emitted', t: tA, segmentId: seg.segmentId, source: this.interpreter.id,
