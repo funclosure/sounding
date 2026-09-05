@@ -31,7 +31,7 @@ function makeSession(interpreter: Interpreter) {
 }
 
 describe('session operation queue', () => {
-  it('unawaited overlapping calls still produce a correctly ordered log', async () => {
+  it('unawaited overlapping calls: committed/pending land in call order, candidates land at the latest time asked', async () => {
     const interp = new GatedInterpreter()
     const s = makeSession(interp)
     s.drop()
@@ -42,10 +42,21 @@ describe('session operation queue', () => {
     await Promise.all([first, pending, second])
     const types = s.log.all().map((e) => `${e.type}@${e.t}`)
     const idx = (needle: string) => types.findIndex((x) => x.startsWith(needle))
-    // seg1's candidates land before anything at a later timestamp
-    expect(idx('candidates.emitted@4000')).toBeGreaterThan(idx('segment.committed@4000'))
-    expect(idx('segment.pending@4200')).toBeGreaterThan(idx('candidates.emitted@4000'))
-    expect(idx('candidates.emitted@8000')).toBeGreaterThan(idx('segment.pending@4200'))
+    // The three synchronous, unawaited calls all touch latestT (4000, 4200,
+    // 8000) before any queue op runs, so the interpreter call for seg1 no
+    // longer runs inside the queue: its log append + apply are scheduled
+    // (op A / op B) in enqueue order, but land at max(t, latestT) = 8000,
+    // not at seg1's own segment time of 4000.
+    expect(idx('candidates.emitted@4000')).toBe(-1)
+    expect(idx('segment.committed@4000')).toBeGreaterThanOrEqual(0)
+    expect(idx('segment.pending@4200')).toBeGreaterThan(idx('segment.committed@4000'))
+    expect(idx('segment.committed@8000')).toBeGreaterThan(idx('segment.pending@4200'))
+    // both segments still get their candidates — pairing preserved — and
+    // both land at t=8000 (the latest time asked of the session by the time
+    // either interpretation was applied)
+    const emittedFor = (segId: string) => s.log.all().find((e) => e.type === 'candidates.emitted' && e.segmentId === segId)
+    expect(emittedFor('seg1')?.t).toBe(8000)
+    expect(emittedFor('seg2')?.t).toBe(8000)
     // and the log is timestamp-monotonic (append would have thrown otherwise)
     const ts = s.log.all().map((e) => e.t)
     expect([...ts].sort((a, b) => a - b)).toEqual(ts)

@@ -7,16 +7,23 @@ import type { SalienceConfig } from '../salience/config'
 export type AudioSource = (seg: { segmentId: string; startT: Ms; endT: Ms }) => Promise<AudioSegment>
 
 /**
- * One sounding, from drop to surface. All time-advancing operations pass
- * through a single internal queue: interpretation is async, and interleaved
- * calls must not corrupt segment↔candidates pairing or log monotonicity.
- * Time only moves via the timestamps callers hand in — replay and live mode
- * are indistinguishable from here down.
+ * One sounding, from drop to surface. Time-advancing log writes pass through
+ * a single internal queue so interleaved calls can't corrupt log
+ * monotonicity. `feedCommitted` is the exception: the interpreter call runs
+ * OUTSIDE that queue (so ticks keep flowing during a slow model call), while
+ * the log append + apply around it still go through the queue, timestamped
+ * at max(segment time, latest time asked of the session) — the segment time
+ * in replay (byte-identical logs), the arrival time live. `surface` waits
+ * for every in-flight interpretation before it appends, so nothing lands
+ * after the end. Time only moves via the timestamps callers hand in —
+ * replay and live mode are indistinguishable from here down.
  */
 export class SoundingSession {
   readonly log = new EventLog()
   private lastTick: Ms = 0
   private opQueue: Promise<unknown> = Promise.resolve()
+  private latestT: Ms = 0
+  private readonly inFlight = new Set<Promise<void>>()
 
   constructor(
     private readonly interpreter: Interpreter,
@@ -37,15 +44,21 @@ export class SoundingSession {
     return run
   }
 
+  private touch(t: Ms): void {
+    if (t > this.latestT) this.latestT = t
+  }
+
   drop(): void {
     this.log.append({ type: 'sounding.dropped', t: 0, soundingId: this.soundingId })
   }
 
   advanceTo(t: Ms): Promise<void> {
+    this.touch(t)
     return this.enqueue(() => this.advanceNow(t))
   }
 
   feedPending(t: Ms, text: string): Promise<void> {
+    this.touch(t)
     return this.enqueue(() => {
       this.advanceNow(t)
       this.log.append({ type: 'segment.pending', t, text })
@@ -53,32 +66,46 @@ export class SoundingSession {
     })
   }
 
+  /**
+   * Commit a segment. The interpreter call runs OUTSIDE the op queue so
+   * ticks keep flowing during it; the log append + apply run inside the
+   * queue at max(t, latestT). In replay the caller awaits this before moving
+   * time, so the candidates land at `t` exactly as before (byte-identical
+   * logs); in live mode they land when they arrive.
+   */
   feedCommitted(t: Ms, seg: { segmentId: string; transcript: string; startT: Ms; endT: Ms }): Promise<void> {
-    return this.enqueue(() => this.processCommitted(t, seg))
+    this.touch(t)
+    const p = (async () => {
+      const input = await this.enqueue(async () => {
+        this.advanceNow(t)
+        this.log.append({ type: 'segment.committed', t, ...seg })
+        return this.buildInput(seg)
+      })
+      const result = await this.interpreter.interpret(input)
+      await this.enqueue(async () => {
+        const tA = Math.max(t, this.latestT)
+        this.advanceNow(tA)
+        this.log.append({
+          type: 'candidates.emitted', t: tA, segmentId: seg.segmentId, source: this.interpreter.id,
+          candidates: result.candidates, costUsd: result.costUsd, latencyMs: result.latencyMs,
+        })
+        await this.dynamics.applyCandidates(tA, result.candidates)
+      })
+    })()
+    const tracked = p.then(() => undefined, () => undefined)
+    this.inFlight.add(tracked)
+    void tracked.then(() => this.inFlight.delete(tracked))
+    return p
   }
 
-  surface(t: Ms): Promise<void> {
-    return this.enqueue(() => {
-      this.advanceNow(t)
-      this.log.append({ type: 'sounding.surfaced', t })
+  /** Surfacing waits for every in-flight interpretation so nothing lands after the end. */
+  async surface(t: Ms): Promise<void> {
+    this.touch(t)
+    while (this.inFlight.size) await Promise.all([...this.inFlight])
+    await this.enqueue(() => {
+      this.advanceNow(Math.max(t, this.latestT))
+      this.log.append({ type: 'sounding.surfaced', t: Math.max(t, this.latestT) })
     })
-  }
-
-  private async processCommitted(t: Ms, seg: { segmentId: string; transcript: string; startT: Ms; endT: Ms }): Promise<void> {
-    this.advanceNow(t)
-    this.log.append({ type: 'segment.committed', t, ...seg })
-    const input = await this.buildInput(seg)
-    const result = await this.interpreter.interpret(input)
-    this.log.append({
-      type: 'candidates.emitted',
-      t,
-      segmentId: seg.segmentId,
-      source: this.interpreter.id,
-      candidates: result.candidates,
-      costUsd: result.costUsd,
-      latencyMs: result.latencyMs,
-    })
-    await this.dynamics.applyCandidates(t, result.candidates)
   }
 
   private async buildInput(seg: { segmentId: string; transcript: string; startT: Ms; endT: Ms }): Promise<InterpreterInput> {
