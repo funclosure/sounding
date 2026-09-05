@@ -17,10 +17,22 @@ const ENDPOINT = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativ
 export const SETUP = { setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes: [], mode: 'VERBATIM' } } }
 const SESSION_LIMIT_MS = 9.5 * 60_000
 
+const SETUP_TIMEOUT_MS = 10_000
+
+/** Frames arrive as a string, ArrayBuffer, Node Buffer, or Blob depending on the WebSocketLike implementation — decode all four uniformly. */
+async function decodeFrame(d: unknown): Promise<string> {
+  return typeof d === 'string'
+    ? d
+    : d instanceof ArrayBuffer
+      ? Buffer.from(d).toString('utf8')
+      : Buffer.isBuffer(d)
+        ? d.toString('utf8')
+        : Buffer.from(await (d as Blob).arrayBuffer()).toString('utf8')
+}
+
 interface Options {
   socketFactory?: (url: string) => WebSocketLike
   sessionLimitMs?: number
-  now?: () => number
   setTimer?: typeof setTimeout
   clearTimer?: typeof clearTimeout
 }
@@ -36,6 +48,13 @@ export class TranscribeLiveClient implements Transcriber {
    * during rotation can't clear the fresh socket's pending state.
    */
   private readonly pending = new Set<WebSocketLike>()
+  /**
+   * Per-socket: drain(ws) stores its `finish` resolver here while a trailing
+   * final is owed. onmessage calls it (and deletes the entry) at the same
+   * point it clears `pending`, so drain resolves on the dispatched final
+   * rather than sniffing the raw frame for the string "inputTranscription".
+   */
+  private readonly drainResolvers = new Map<WebSocketLike, () => void>()
   /** Set by end(); tells an in-flight rotate() not to resurrect the session once its fresh socket opens. */
   private ended = false
   private readonly factory: (url: string) => WebSocketLike
@@ -78,21 +97,48 @@ export class TranscribeLiveClient implements Transcriber {
     return new Promise((resolve, reject) => {
       const ws = this.factory(`${ENDPOINT}?key=${this.apiKey}`)
       let settled = false
-      ws.onopen = () => ws.send(JSON.stringify(SETUP))
-      ws.onerror = (e) => { if (!settled) { settled = true; reject(new Error(`transcribe-live socket error: ${String((e as { message?: string })?.message ?? e)}`)) } else this.cbs?.onStatus('error', String((e as { message?: string })?.message ?? e)) }
-      ws.onclose = (e) => { if (!settled) { settled = true; reject(new Error(`transcribe-live closed before setup: ${e.code} ${e.reason}`)) } }
+      let setupTimer: ReturnType<typeof setTimeout> | null = null
+      const clearSetupTimer = () => { if (setupTimer) { this.clearTimer(setupTimer); setupTimer = null } }
+      const doResolve = () => { if (settled) return; settled = true; clearSetupTimer(); resolve(ws) }
+      const doReject = (err: Error) => { if (settled) return; settled = true; clearSetupTimer(); reject(err) }
+      ws.onopen = () => {
+        ws.send(JSON.stringify(SETUP))
+        setupTimer = this.setTimer(() => {
+          doReject(new Error('transcribe-live setup timed out'))
+          try { ws.close() } catch { /* already closed */ }
+        }, SETUP_TIMEOUT_MS)
+      }
+      ws.onerror = (e) => { if (!settled) doReject(new Error(`transcribe-live socket error: ${String((e as { message?: string })?.message ?? e)}`)); else this.cbs?.onStatus('error', String((e as { message?: string })?.message ?? e)) }
+      ws.onclose = (e) => {
+        if (!settled) { doReject(new Error(`transcribe-live closed before setup: ${e.code} ${e.reason}`)); return }
+        // Setup already completed on this socket. If it's still the client's
+        // current socket (not superseded by a rotate/end), an unexpected
+        // close here would otherwise leave the session listening into a
+        // void — surface it and null out this.ws so sendAudio no-ops.
+        if (ws === this.ws && !this.ended) {
+          this.cbs?.onStatus('error', `transcribe-live closed: ${e.code} ${e.reason}`)
+          this.ws = null
+        }
+      }
       ws.onmessage = (ev) => {
         // Never awaited by the caller (it's a callback field), so a rejection
         // here would be unhandled — keep every failure path inside this try.
         void (async () => {
+          // Stay synchronous for the (overwhelmingly common) string-frame path:
+          // awaiting decodeFrame() unconditionally would insert a microtask
+          // tick even when there's nothing to decode, reordering this handler
+          // relative to synchronous sendAudio()/end() calls made right after
+          // ws.onmessage fires.
           let text: string
-          try {
-            text = typeof ev.data === 'string' ? ev.data : Buffer.from(await (ev.data as Blob).arrayBuffer()).toString('utf8')
-          } catch { return }
+          try { text = typeof ev.data === 'string' ? ev.data : await decodeFrame(ev.data) } catch { return }
           let m: { setupComplete?: unknown; serverContent?: { interimInputTranscription?: { text?: string }; inputTranscription?: { text?: string } }; error?: unknown }
           try { m = JSON.parse(text) } catch { return }
-          if (m.setupComplete !== undefined) { if (!settled) { settled = true; resolve(ws) } return }
-          if (m.error) { this.cbs?.onStatus('error', JSON.stringify(m.error).slice(0, 200)); return }
+          if (m.setupComplete !== undefined) { doResolve(); return }
+          if (m.error) {
+            if (!settled) { doReject(new Error(JSON.stringify(m.error).slice(0, 200))); return }
+            this.cbs?.onStatus('error', JSON.stringify(m.error).slice(0, 200))
+            return
+          }
           const sc = m.serverContent
           // voiceActivity / generationComplete carry no transcript text and are
           // deliberately ignored here; only interim/final text is dispatched.
@@ -101,6 +147,7 @@ export class TranscribeLiveClient implements Transcriber {
           } else if (sc?.inputTranscription?.text !== undefined) {
             this.pending.delete(ws)
             this.cbs?.onFinal(sc.inputTranscription.text)
+            this.drainResolvers.get(ws)?.()
           }
         })()
       }
@@ -116,12 +163,11 @@ export class TranscribeLiveClient implements Transcriber {
   private drain(ws: WebSocketLike): Promise<void> {
     return new Promise((resolve) => {
       let done = false
-      const finish = () => { if (!done) { done = true; try { ws.close() } catch { /* already closed */ } resolve() } }
+      const finish = () => { if (!done) { done = true; this.drainResolvers.delete(ws); try { ws.close() } catch { /* already closed */ } resolve() } }
       const owed = this.pending.delete(ws)
       try { ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })) } catch { finish(); return }
       if (!owed) { finish(); return }
-      const prev = ws.onmessage
-      ws.onmessage = (ev) => { prev?.(ev); if (typeof ev.data === 'string' && ev.data.includes('"inputTranscription"')) finish() }
+      this.drainResolvers.set(ws, finish)
       this.setTimer(finish, 3000)
     })
   }

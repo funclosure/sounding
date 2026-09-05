@@ -2,9 +2,7 @@
 import { createChart, fmt } from './chart'
 import { summarizeCounters } from '../replay/counters'
 import type { SoundingEvent } from '../core/events'
-import type { Ms } from '../core/types'
-
-type LiveMessage = SoundingEvent | { type: 'live.heard'; t: Ms; words: string[] } | { type: 'live.status'; state: string; message?: string }
+import type { LiveMessage } from '../live/live-sounding'
 
 const interp = document.getElementById('live-interp') as HTMLSelectElement
 const listenBtn = document.getElementById('listen') as HTMLButtonElement
@@ -20,7 +18,7 @@ const view = createChart({
 
 const port = new URLSearchParams(location.search).get('port') ?? '8787'
 let ws: WebSocket | null = null
-let audio: { ctx: AudioContext; stream: MediaStream; node: AudioWorkletNode } | null = null
+let audio: AudioRig | null = null
 // Set as soon as getUserMedia resolves inside setupAudio, cleared once setupAudio
 // either succeeds (into `audio`) or fails. Lets teardownAudio() stop the mic even
 // when it's called (via finish()) while setupAudio is still mid-flight.
@@ -88,25 +86,37 @@ function onMessage(m: LiveMessage) {
   if (m.type === 'candidates.emitted') { const c = summarizeCounters(events); countersEl.textContent = `${c.callCount} calls · $${c.totalCostUsd.toFixed(4)} · mean ${Math.round(c.meanLatencyMs)}ms` }
 }
 
-async function setupAudio(socket: WebSocket) {
+type AudioRig = { ctx: AudioContext; stream: MediaStream; node: AudioWorkletNode }
+
+// Does not assign the module-level `audio` — the caller (onopen) decides
+// whether this rig is still wanted (the session may have been superseded or
+// torn down while getUserMedia/addModule was in flight) before claiming it.
+async function setupAudio(socket: WebSocket): Promise<AudioRig> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
   pendingStream = stream
   let ctx: AudioContext | null = null
   try {
     try { ctx = new AudioContext({ sampleRate: 16000 }) } catch { ctx = new AudioContext() }
+    if (ctx.state === 'suspended') await ctx.resume()
     await ctx.audioWorklet.addModule('/pcm-worklet.js')
     const src = ctx.createMediaStreamSource(stream)
     const node = new AudioWorkletNode(ctx, 'pcm-capture', { numberOfInputs: 1, numberOfOutputs: 0 })
     node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => { if (socket.readyState === WebSocket.OPEN) socket.send(e.data) }
     src.connect(node)
-    audio = { ctx, stream, node }
     pendingStream = null
+    return { ctx, stream, node }
   } catch (e) {
     stream.getTracks().forEach((t) => t.stop())
     if (ctx) await ctx.close().catch(() => {})
     pendingStream = null
     throw e
   }
+}
+
+async function closeAudioRig(a: AudioRig) {
+  a.node.disconnect()
+  a.stream.getTracks().forEach((t) => t.stop())
+  await a.ctx.close().catch(() => {})
 }
 
 // Idempotent: safe to call multiple times (e.g. once from finish() and once
@@ -119,9 +129,7 @@ async function teardownAudio() {
   if (!audio) return
   const a = audio
   audio = null
-  a.node.disconnect()
-  a.stream.getTracks().forEach((t) => t.stop())
-  await a.ctx.close().catch(() => {})
+  await closeAudioRig(a)
 }
 
 async function start() {
@@ -129,7 +137,7 @@ async function start() {
   state = 'starting'; opened = false; sawError = false
   listenBtn.disabled = true; setStatus('connecting…')
   events = []; view.reset(); countersEl.textContent = ''; clockEl.textContent = '0:00'
-  const socket = new WebSocket(`ws://localhost:${port}`)
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`)
   socket.binaryType = 'arraybuffer'
   // onerror never owns state — a socket error is always followed by a close
   // event (per the WebSocket spec), and onclose is the one place that decides
@@ -139,24 +147,32 @@ async function start() {
     if (mine !== gen) return // a stale socket from a session finish() already closed
     if (state === 'idle') return // already finished via a 'stopped' status
     if (sawError && opened) console.warn('live socket errored before closing')
-    finish(opened ? 'connection closed' : `cannot reach live server at ws://localhost:${port} — run: npm run live`)
+    finish(opened ? 'connection closed' : `cannot reach live server at ws://127.0.0.1:${port} — run: npm run live`)
   }
   socket.onmessage = (ev) => { try { onMessage(JSON.parse(ev.data as string)) } catch (e) { console.error(e) } }
   socket.onopen = async () => {
     if (mine !== gen) { socket.close(); return } // superseded by a newer start()
     opened = true
     ws = socket
+    let a: AudioRig
     try {
-      await setupAudio(socket)
+      a = await setupAudio(socket)
     } catch (e) {
+      // A stale session's setupAudio() rejecting (e.g. mic access denied,
+      // reported only after a fast re-click already started a newer
+      // session) must not finish() the session that superseded it.
+      if (mine !== gen) return
       finish(`error: ${e instanceof Error && e.name === 'NotAllowedError' ? 'microphone access denied' : (e instanceof Error ? e.message : String(e))}`)
       return
     }
     // finish() may have run while setupAudio() was mid-flight (e.g. the
     // socket closed, or a server error arrived before `start` was even
-    // sent). Don't resurrect a session that's already been torn down —
-    // just release the audio setupAudio just finished acquiring.
-    if (state !== 'starting') { await teardownAudio(); return }
+    // sent), or a fast re-click may have started a newer session while this
+    // one was still acquiring the mic. Don't resurrect/interfere with state
+    // this generation no longer owns — just release the audio setupAudio
+    // just finished acquiring.
+    if (mine !== gen || state !== 'starting') { await closeAudioRig(a); return }
+    audio = a
     socket.send(JSON.stringify({ type: 'start', interpreter: interp.value }))
     state = 'live'
     listenBtn.textContent = 'Stop'

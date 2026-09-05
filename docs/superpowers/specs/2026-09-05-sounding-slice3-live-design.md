@@ -150,6 +150,12 @@ connection:
   wall-clock boundary (like `src/ui/main.ts`); the engine never reads it.
 - The `.env` loader from `src/cli/env.ts` runs at startup. Keys never leave
   this process.
+- `--headless` is an explicit flag, not inferred from `--from`/`--fixture` —
+  those can also drive a browser-attached run. In serve mode (no
+  `--headless`), a missing `GEMINI_API_KEY` is not a startup failure: it
+  surfaces per connection as a `live.status error` when that connection's
+  `start` tries to build a real transcriber, so the page shows it instead of
+  the process exiting under a browser that's still open.
 
 **`src/ui/live.ts` + `live.html`.** A second page (`/live.html`), not a mode
 of the replay instrument, so the two proofs of concept don't entangle:

@@ -19,6 +19,11 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
+/** Only a browser tab served from this same machine may open the live socket. */
+export function isAllowedOrigin(origin: string | undefined): boolean {
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin ?? '')
+}
+
 export function parseArgs(argv: string[]): Args {
   const a: Args = { interpreter: 'gemini', port: 8787, fakeTranscriber: false, speed: 1, headless: false }
   for (let i = 0; i < argv.length; i++) {
@@ -80,7 +85,7 @@ async function runHeadless(args: Args): Promise<void> {
 }
 
 function serve(args: Args): void {
-  const wss = new WebSocketServer({ host: '127.0.0.1', port: args.port })
+  const wss = new WebSocketServer({ host: '127.0.0.1', port: args.port, verifyClient: ({ origin }: { origin: string }) => isAllowedOrigin(origin) })
   console.log(`live server listening on ws://localhost:${args.port} — interpreter ${args.interpreter}${args.from ? `, fake mic from ${args.from}` : ''}`)
   wss.on('connection', (ws: WsSocket) => {
     let live: LiveSounding | null = null

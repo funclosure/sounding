@@ -21,7 +21,6 @@ function makeClient(now: { t: number }, timers: Array<{ at: number; fn: () => vo
   return new TranscribeLiveClient('KEY', {
     socketFactory: (url) => new FakeSocket(url),
     sessionLimitMs: 1000,
-    now: () => now.t,
     setTimer: ((fn: () => void, ms: number) => { timers.push({ at: now.t + ms, fn }); return timers.length as unknown as NodeJS.Timeout }) as typeof setTimeout,
     clearTimer: (() => {}) as typeof clearTimeout,
   })
@@ -195,14 +194,73 @@ describe('TranscribeLiveClient', () => {
     timers.find((x) => x.at === 1000)!.fn()                    // session-limit timer fires; fresh socket created but not opened
     expect(FakeSocket.created.length).toBe(2)
     const fresh = FakeSocket.created[1]
-    const timerCountBefore = timers.length
     await c.end()
     expect(old.closed).toBe(true)
-    fresh.open(); fresh.receive({ setupComplete: {} })          // rotate()'s open() resolves after end() already ran
+    fresh.open()                                                 // arms fresh's own 10s setup timer
+    const timerCountBefore = timers.length
+    fresh.receive({ setupComplete: {} })                         // rotate()'s open() resolves after end() already ran
     await Promise.resolve()
     await Promise.resolve()
     expect(JSON.parse(fresh.sent.at(-1)!)).toEqual({ realtimeInput: { audioStreamEnd: true } })
     expect(fresh.closed).toBe(true)
-    expect(timers.length).toBe(timerCountBefore)                // no new limit timer armed
+    expect(timers.length).toBe(timerCountBefore)                 // no session-limit timer armed once ended
+  })
+
+  it('an unexpected close after setup surfaces a status error, and sendAudio then no-ops', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const statuses: Array<{ state: string; message?: string }> = []
+    const p = c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: (state, message) => statuses.push({ state, message }) })
+    const ws = FakeSocket.created[0]
+    ws.open(); ws.receive({ setupComplete: {} }); await p
+    ws.close() // simulate the remote end dropping the connection, not end()/drain()
+    expect(statuses.at(-1)?.state).toBe('error')
+    expect(statuses.at(-1)?.message).toContain('transcribe-live closed')
+    const sentBefore = ws.sent.length
+    expect(() => c.sendAudio(new Int16Array([1]))).not.toThrow()
+    expect(ws.sent.length).toBe(sentBefore) // no-op: this.ws was nulled out
+  })
+
+  it('an error message before setupComplete rejects connect()', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const p = c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open()
+    ws.receive({ error: { code: 400, message: 'bad setup' } })
+    await expect(p).rejects.toThrow(/bad setup|400/)
+  })
+
+  it('a setup timeout rejects connect() when setupComplete never arrives', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const p = c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open()
+    const rejected = p.catch((e: unknown) => e)
+    timers.find((x) => x.at === 10_000)!.fn()
+    const err = await rejected
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toBe('transcribe-live setup timed out')
+    expect(ws.closed).toBe(true)
+  })
+
+  it('drain resolves on a binary final frame, without waiting for the 3s timer', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    const got: string[] = []
+    const p = c.connect({ onInterim: () => {}, onFinal: (t) => got.push('F:' + t), onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open(); ws.receive({ setupComplete: {} }); await p
+    c.sendAudio(new Int16Array([1]))
+    const endP = c.end()
+    ws.onmessage?.({ data: Buffer.from(JSON.stringify({ serverContent: { inputTranscription: { text: 'x' } } })) })
+    await endP
+    expect(got).toEqual(['F:x'])
+    expect(ws.closed).toBe(true)
   })
 })
