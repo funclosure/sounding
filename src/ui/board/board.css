@@ -38,6 +38,11 @@
 
 * { box-sizing: border-box; }
 
+/* narrow-viewport (default) grid: status / body / controls, one column.
+   The ≥720px rule below overrides this — kept here (not in live.html) so
+   both live in the same cascade and source order decides the winner. */
+.screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); }
+
 /* status strip: state dot + word, clock, counters (no speed buttons — this is live) */
 .status { z-index: 2; display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; padding: 14px 22px 0; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--chrome); }
 .status .state { justify-self: start; display: flex; align-items: center; gap: 8px; }
@@ -89,6 +94,9 @@
 .hint button { all: unset; cursor: pointer; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
 .hint button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .hint b { font-weight: 500; color: var(--accent); font-family: "Fraunces", Georgia, serif; font-size: 12.5px; letter-spacing: 0; text-transform: none; }
+.ctxopen { all: unset; cursor: pointer; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--chrome); }
+.ctxopen:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ctxopen[hidden] { display: none; }
 
 /* ---------- the sheet: peek / medium / large ---------- */
 .scrim { position: absolute; inset: 0; z-index: 8; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity 0.35s ease; }
@@ -157,3 +165,40 @@
   .mark, .word, .sheet, .scrim { transition-duration: 0.2s; }
   .mark.arrive, .mark.arrive::after, .caret { animation: none; }
 }
+
+/* ---------- desktop (≥720px): side panels + a context popover instead of the sheet ---------- */
+@media (min-width: 720px) {
+  /* `height` (not just `min-height`) is required here: without a definite
+     block size on the grid container, the `minmax(0, 1fr)` row has no
+     available space to resolve against, so browsers size it to its
+     content's max-content height instead — and the panels' in-flow
+     transcript/chart content (unlike the board's absolutely-positioned
+     marks) has real height, which then inflates the whole page. */
+  .screen { display: grid; height: 100vh; grid-template-rows: 54px minmax(0, 1fr) 150px; grid-template-columns: var(--left-w, 0px) minmax(0, 1fr) var(--right-w, 0px); }
+  .screen > .status, .screen > .controls { grid-column: 2; }
+  .screen > .field, .screen > .heard { grid-column: 2; grid-row: 2; }
+  .sheet, .scrim { display: none; }
+  .panel-left, .panel-right { grid-row: 1 / -1; position: relative; overflow: hidden; background: var(--sheet); border-color: var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; width: 0; transition: width 0.35s cubic-bezier(.2,.7,.2,1); }
+  .resizing .panel-left, .resizing .panel-right { transition: none; }
+  .panel-left { grid-column: 1; border-right: 1px solid var(--line); }
+  .panel-right { grid-column: 3; border-left: 1px solid var(--line); grid-template-rows: auto auto auto minmax(0, 1fr); }
+  .panel-left:not(.open), .panel-right:not(.open) { width: 0 !important; border-width: 0; }
+  .panel-left h2, .panel-right h2 { margin: 0; padding: 18px 22px 8px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome); font-weight: 400; }
+  .panel-left .transcript { padding-bottom: 40px; }
+  .panel-right svg { min-height: 0; }
+  .grip { position: absolute; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 2; }
+  .panel-left .grip { right: -4px; } .panel-right .grip { left: -4px; }
+  .edge { all: unset; cursor: pointer; position: absolute; top: 50%; z-index: 6; font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome-2); writing-mode: vertical-rl; transform: translateY(-50%); padding: 10px 4px; opacity: 0.8; }
+  .edge kbd { font: inherit; opacity: 0.6; margin-top: 8px; }
+  .edge.left { left: 6px; transform: translateY(-50%) rotate(180deg); }
+  .edge.right { right: 6px; }
+  .edge[aria-expanded="true"] { color: var(--ink); }
+  .edge:focus-visible { outline: 2px solid var(--accent); }
+  .popover { position: absolute; z-index: 9; width: min(440px, 80vw); transform: translate(-50%, 8px); opacity: 0; background: var(--sheet); border-radius: 18px; box-shadow: 0 16px 40px rgba(0,0,0,0.2); padding: 16px 18px 14px; transition: transform 0.25s ease, opacity 0.25s ease; }
+  .popover.open { transform: translate(-50%, 0); opacity: 1; }
+}
+/* `.ctxopen` is desktop-only chrome: the popover it opens has no home on
+   the sheet, and the narrow layout already reaches Context via the sheet's
+   own tab — the button also sits low enough in `.controls` that it would
+   otherwise land under the sheet's peek strip. */
+@media (max-width: 719.98px) { .panel-left, .panel-right, .edge, .popover, .ctxopen { display: none !important; } }

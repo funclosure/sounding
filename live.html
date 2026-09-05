@@ -22,12 +22,13 @@
         font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
       }
 
-      /* the board fills the viewport: no phone frame, the screen root is the page */
+      /* the board fills the viewport: no phone frame, the screen root is the page.
+         display/grid-template-* live in board.css (base rule + the ≥720px
+         override) so the desktop media query wins the cascade — this rule
+         must not repeat them, or it would outrank board.css's media-scoped
+         override by simple source order. */
       .screen {
         min-height: 100vh;
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr) auto;
-        grid-template-columns: minmax(0, 1fr);
         position: relative;
         isolation: isolate;
         overflow: hidden;
@@ -61,8 +62,25 @@
 
       <div class="controls">
         <button class="big" id="big" aria-label="Drop"><i></i></button>
+        <button class="ctxopen" id="ctxopen">bring context</button>
         <div class="hint" id="hint"></div>
       </div>
+
+      <aside class="panel-left" aria-label="Transcript">
+        <div class="grip" aria-hidden="true"></div>
+        <h2>Transcript</h2>
+        <div class="transcript" id="transcript-d"></div>
+      </aside>
+      <aside class="panel-right" aria-label="Chart">
+        <div class="grip" aria-hidden="true"></div>
+        <h2>Chart</h2>
+        <div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div>
+        <div class="surfaced" id="surfacedbox-d"></div>
+        <svg id="chartsvg-d" viewBox="0 0 390 560" preserveAspectRatio="none" aria-label="Prominence of each concept over the sounding"></svg>
+      </aside>
+      <button class="edge left" aria-expanded="false" aria-controls="transcript-d">transcript <kbd>T</kbd></button>
+      <button class="edge right" aria-expanded="false" aria-controls="chartsvg-d">chart <kbd>C</kbd></button>
+      <div class="popover" id="context-pop" hidden><div class="context" id="context-d"></div></div>
 
       <div class="scrim" id="scrim"></div>
       <div class="sheet" id="sheet" data-detent="peek">
@@ -74,24 +92,7 @@
         </div>
         <div class="body" id="sheetbody">
           <div class="pane" data-pane="context">
-            <div class="context" id="context">
-              <h3>What are you circling already?</h3>
-              <textarea id="ctxtext" placeholder="A question, a few notes, a name…"></textarea>
-              <div class="chips">
-                <button class="chip" data-ctx="A question I keep coming back to.">a question</button>
-                <button class="chip" data-ctx="Notes from last time.">notes from last time</button>
-                <button class="chip" data-ctx="A previous sounding.">a previous sounding</button>
-              </div>
-              <p class="note">
-                Context seeds faint marks on the board. They stay faint until your talking actually reaches them,
-                then they become real. Nothing you bring counts as something you said. Seeding before you drop only
-                stores the text — labels aren't known until you start talking.
-              </p>
-              <div class="row">
-                <button class="act" id="ctxadd">Seed the board</button>
-                <button class="act quiet" id="ctxclear">Clear</button>
-              </div>
-            </div>
+            <div class="context" id="context"></div>
           </div>
           <div class="pane on" data-pane="transcript">
             <div class="transcript" id="transcript"></div>

@@ -11,6 +11,8 @@ import { createHeard } from './board/heard'
 import { createTranscript } from './board/transcript'
 import { createLanes } from './board/lanes'
 import { createSheet } from './board/sheet'
+import { createPanels } from './board/panels'
+import { createPopover } from './board/popover'
 
 const screen = document.getElementById('screen') as HTMLElement
 const fieldEl = document.getElementById('field') as HTMLElement
@@ -28,16 +30,67 @@ const sheetBody = document.getElementById('sheetbody') as HTMLElement
 const transcriptEl = document.getElementById('transcript') as HTMLElement
 const chartSvg = document.getElementById('chartsvg') as unknown as SVGSVGElement
 const surfacedBox = document.getElementById('surfacedbox')!
-const contextTextarea = document.getElementById('ctxtext') as HTMLTextAreaElement
-const contextChips = Array.from(document.querySelectorAll<HTMLButtonElement>('#context .chip'))
-const seedBtn = document.getElementById('ctxadd') as HTMLButtonElement
-const clearBtn = document.getElementById('ctxclear') as HTMLButtonElement
+const contextEl = document.getElementById('context') as HTMLElement
+// desktop panels + popover
+const transcriptElD = document.getElementById('transcript-d') as HTMLElement
+const chartSvgD = document.getElementById('chartsvg-d') as unknown as SVGSVGElement
+const surfacedBoxD = document.getElementById('surfacedbox-d')!
+const contextElD = document.getElementById('context-d') as HTMLElement
+const contextPopEl = document.getElementById('context-pop') as HTMLElement
+const ctxOpenBtn = document.getElementById('ctxopen') as HTMLButtonElement
 
 const board = createBoard(fieldEl)
 const heard = createHeard(heardEl)
 const transcript = createTranscript(transcriptEl)
 const lanes = createLanes(chartSvg)
+const transcriptD = createTranscript(transcriptElD)
+const lanesD = createLanes(chartSvgD)
 const sheet = createSheet(sheetRoot, { grab, tabs, body: sheetBody, scrim })
+const panels = createPanels(
+  screen,
+  {
+    left: { side: 'left', min: 280, max: 560, default: 360, key: 't' },
+    right: { side: 'right', min: 320, max: 720, default: 440, key: 'c' },
+  },
+  () => board.relayout(),
+)
+const contextPop = createPopover(ctxOpenBtn, contextPopEl)
+const mq = window.matchMedia('(min-width: 720px)')
+const layout = {
+  isDesktop: () => mq.matches,
+  showTranscript() {
+    if (mq.matches) panels.open('left')
+    else {
+      sheet.showTab('transcript')
+      sheet.set('medium')
+    }
+  },
+  showChart() {
+    if (mq.matches) panels.open('right')
+    else {
+      sheet.showTab('chart')
+      sheet.set('medium')
+    }
+  },
+  showContext() {
+    if (mq.matches) contextPop.open()
+    else {
+      sheet.showTab('context')
+      sheet.set('medium')
+    }
+  },
+  closeContext() {
+    contextPop.close()
+  },
+  onSurfaced() {
+    this.showChart()
+  },
+}
+mq.addEventListener('change', () => {
+  contextPop.close()
+  sheet.set('peek')
+  board.relayout()
+})
 
 const port = new URLSearchParams(location.search).get('port') ?? '8787'
 // No interpreter picker in this design (the prototype has none); ?interp=
@@ -103,7 +156,7 @@ function setState(text: string, listening: boolean) {
  */
 function slackWord(slack: boolean) {
   if (!screen.classList.contains('listening')) return
-  screen.classList.toggle('slack', slack)
+  screen.classList.toggle('slack', state === 'live' && slack)
   stateEl.textContent = slack ? 'slack' : 'listening'
 }
 
@@ -138,17 +191,29 @@ function finish(statusText: string, opts?: { keepStatusClass?: boolean }) {
     setState(statusText, false)
     screen.classList.remove('slack', 'surfaced')
   }
+  syncCtxOpenVisibility()
 }
 
-// Rebuilds the chart from every reading gathered so far, at the head. Used
-// whenever display returns to the head from a scrub (or the head itself
-// needs a full rebuild before being shown) — showLive's throttled build
-// only ever covers what was shown live, so a scrub, or a stop/error
-// interrupting one, needs a rebuild from the full `readings` array to be
-// complete.
+// The "bring context" button (round-control affordance for the popover on
+// desktop, and the sheet's Context tab on narrow) is shown only while idle
+// — before a session starts, or after one has surfaced.
+function syncCtxOpenVisibility() {
+  ctxOpenBtn.hidden = state !== 'idle'
+}
+
+// Rebuilds both chart renderers (sheet + desktop panel) from every reading
+// gathered so far, at the head. Used whenever display returns to the head
+// from a scrub (or the head itself needs a full rebuild before being
+// shown) — showLive's throttled build only ever covers what was shown
+// live, so a scrub, or a stop/error interrupting one, needs a rebuild from
+// the full `readings` array to be complete.
 function rebuildLanes() {
-  lanes.build(laneSeries(readings, Math.max(headT, 1)), Math.max(headT, 1))
+  const series = laneSeries(readings, Math.max(headT, 1))
+  const endT = Math.max(headT, 1)
+  lanes.build(series, endT)
   lanes.head(headT)
+  lanesD.build(series, endT)
+  lanesD.head(headT)
   lastBuildT = headT
 }
 
@@ -157,31 +222,32 @@ function showSurfaced() {
   screen.classList.add('surfaced')
   rebuildLanes()
   const last = readings.at(-1)
-  if (last) {
-    const items = ranked(last)
-    surfacedBox.innerHTML = `<h3>What you kept coming back to <small style="font-size:12px;color:var(--chrome);font-family:'IBM Plex Mono',monospace;letter-spacing:.08em">· ${fmt(last.t)}</small></h3>
-      <ol>${items
+  const html = last
+    ? `<h3>What you kept coming back to <small style="font-size:12px;color:var(--chrome);font-family:'IBM Plex Mono',monospace;letter-spacing:.08em">· ${fmt(last.t)}</small></h3>
+      <ol>${ranked(last)
         .map(
           (it) =>
             `<li><span class="lbl">${escapeHtml(it.label)}</span><span class="pct">${it.pct}%</span><span class="bar"><i style="width:${Math.round(it.rel * 100)}%"></i></span></li>`,
         )
         .join('')}</ol>`
-  } else {
-    surfacedBox.innerHTML = ''
-  }
+    : ''
+  surfacedBox.innerHTML = html
+  surfacedBoxD.innerHTML = html
   surfacedBox.classList.add('on')
-  sheet.showTab('chart')
-  sheet.set('medium')
+  surfacedBoxD.classList.add('on')
+  layout.onSurfaced()
 }
 
 function toggleFollow(id: string) {
   lit = lit === id ? null : id
   board.setLit(lit)
   lanes.setLit(lit)
+  lanesD.setLit(lit)
   hint.innerHTML = lit ? `following <b>${escapeHtml(labelOf.get(lit) ?? lit)}</b> · tap again to let go` : ''
 }
 board.onTap(toggleFollow)
 lanes.onTapLane(toggleFollow)
+lanesD.onTapLane(toggleFollow)
 
 function flashWords(words: string[]) {
   heard.flash(words)
@@ -247,15 +313,21 @@ function showLive(m: SoundingEvent) {
     slackWord(s.slack)
   }
   if (m.type === 'segment.committed' || m.type === 'segment.pending') {
-    transcript.render(transcriptAt(events, m.t), true)
+    const tm = transcriptAt(events, m.t)
+    transcript.render(tm, true)
+    transcriptD.render(tm, true)
   }
   const shouldRebuild =
     m.type === 'candidates.emitted' || (m.type === 'reading.changed' && m.transitions.length > 0) || m.t - lastBuildT >= 1000
   if (shouldRebuild) {
-    lanes.build(laneSeries(readings, Math.max(headT, 1)), Math.max(headT, 1))
+    const series = laneSeries(readings, Math.max(headT, 1))
+    const endT = Math.max(headT, 1)
+    lanes.build(series, endT)
+    lanesD.build(series, endT)
     lastBuildT = m.t
   }
   lanes.head(m.t)
+  lanesD.head(m.t)
 }
 
 function showAt(t: Ms) {
@@ -267,8 +339,11 @@ function showAt(t: Ms) {
   board.reset()
   if (s) board.apply(s, { instant: true })
   lastShown = s
-  transcript.render(transcriptAt(events, t), false)
+  const tm = transcriptAt(events, t)
+  transcript.render(tm, false)
+  transcriptD.render(tm, false)
   lanes.head(t)
+  lanesD.head(t)
   clockEl.textContent = fmt(t)
   stateEl.textContent = 'replaying · tap to return'
   screen.classList.remove('listening')
@@ -279,14 +354,17 @@ function backToLive() {
   board.reset()
   if (s) board.apply(s, { instant: true })
   lastShown = s
-  transcript.render(transcriptAt(events, headT), true)
+  const tm = transcriptAt(events, headT)
+  transcript.render(tm, true)
+  transcriptD.render(tm, true)
   rebuildLanes()
   clockEl.textContent = fmt(headT)
   stateEl.textContent = state === 'live' ? 'listening' : state === 'idle' ? (surfacedOnce ? 'surfaced' : 'ready') : state
-  screen.classList.toggle('listening', state === 'live' && !(s?.slack))
+  screen.classList.toggle('listening', state === 'live')
   screen.classList.toggle('slack', state === 'live' && !!s?.slack)
 }
 lanes.onScrub(showAt)
+lanesD.onScrub(showAt)
 stateEl.addEventListener('click', () => {
   if (replaying) backToLive()
 })
@@ -354,6 +432,7 @@ async function teardownAudio() {
 async function start() {
   const mine = ++gen
   state = 'starting'
+  syncCtxOpenVisibility()
   opened = false
   sawError = false
   big.disabled = true
@@ -372,6 +451,7 @@ async function start() {
   lit = null
   board.setLit(null)
   lanes.setLit(null)
+  lanesD.setLit(null)
   hint.textContent = ''
   // Each start() gets a fresh ReadingDynamics, whose concept ids are always
   // `c1, c2, …` counting up from one — so ids *recur* every session, and a
@@ -385,13 +465,19 @@ async function start() {
   board.clearGhosts() // also drops the board's own internal seed list, so reset() below doesn't reseed stale ids
   board.reset()
   heard.clear()
-  transcript.render(transcriptAt([], 0), true)
+  const emptyTranscript = transcriptAt([], 0)
+  transcript.render(emptyTranscript, true)
+  transcriptD.render(emptyTranscript, true)
   lanes.build([], 1)
   lanes.head(0)
+  lanesD.build([], 1)
+  lanesD.head(0)
   counters.textContent = ''
   clockEl.textContent = '0:00'
   surfacedBox.classList.remove('on')
   surfacedBox.innerHTML = ''
+  surfacedBoxD.classList.remove('on')
+  surfacedBoxD.innerHTML = ''
   sheet.showTab('transcript')
   if (sheet.get() !== 'peek') sheet.set('peek')
 
@@ -447,6 +533,7 @@ async function start() {
     audio = a
     socket.send(JSON.stringify(interpParam ? { type: 'start', interpreter: interpParam } : { type: 'start' }))
     state = 'live'
+    syncCtxOpenVisibility()
     big.setAttribute('aria-label', 'Surface')
     // Stays disabled until the first `listening` status arrives, so a start
     // that never gets that far can't be "stopped" into the void.
@@ -458,6 +545,7 @@ async function stop() {
   if (!ws) return
   const socket = ws
   state = 'stopping'
+  syncCtxOpenVisibility()
   big.disabled = true
   setState('stopping…', false)
   await teardownAudio()
@@ -468,36 +556,72 @@ async function stop() {
 }
 
 big.addEventListener('click', () => {
+  layout.closeContext()
   if (state === 'idle') void start()
   else if (state === 'live') void stop()
 })
 
-// ---- context: seeds ghost marks by matching against labels as they arrive; nothing is sent to the server
-for (const chip of contextChips) {
-  chip.addEventListener('click', () => {
-    const extra = chip.dataset.ctx ?? ''
-    contextTextarea.value = (contextTextarea.value.trim() ? contextTextarea.value.trim() + ' ' : '') + extra
+// ---- context: seeds ghost marks by matching against labels as they arrive; nothing
+// is sent to the server. Built once into each of the two containers (the sheet's
+// #context and the desktop popover's #context-d) so both stay in sync — only one is
+// ever visible/interactive at a given viewport width, but their textareas mirror each
+// other so switching layouts mid-type doesn't lose what was typed.
+const contextTextareas: HTMLTextAreaElement[] = []
+function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
+  el.innerHTML = `
+    <h3>What are you circling already?</h3>
+    <textarea placeholder="A question, a few notes, a name…"></textarea>
+    <div class="chips">
+      <button class="chip" type="button" data-ctx="A question I keep coming back to.">a question</button>
+      <button class="chip" type="button" data-ctx="Notes from last time.">notes from last time</button>
+      <button class="chip" type="button" data-ctx="A previous sounding.">a previous sounding</button>
+    </div>
+    <p class="note">
+      Context seeds faint marks on the board. They stay faint until your talking actually reaches them,
+      then they become real. Nothing you bring counts as something you said. Seeding before you drop only
+      stores the text — labels aren't known until you start talking.
+    </p>
+    <div class="row">
+      <button class="act" type="button" data-act="seed">Seed the board</button>
+      <button class="act quiet" type="button" data-act="clear">Clear</button>
+    </div>`
+  const textarea = el.querySelector('textarea') as HTMLTextAreaElement
+  contextTextareas.push(textarea)
+  textarea.addEventListener('input', () => {
+    for (const t of contextTextareas) if (t !== textarea) t.value = textarea.value
+  })
+  for (const chip of Array.from(el.querySelectorAll<HTMLButtonElement>('.chip'))) {
+    chip.addEventListener('click', () => {
+      const extra = chip.dataset.ctx ?? ''
+      const next = (textarea.value.trim() ? textarea.value.trim() + ' ' : '') + extra
+      for (const t of contextTextareas) t.value = next
+    })
+  }
+  el.querySelector<HTMLButtonElement>('[data-act="seed"]')!.addEventListener('click', () => {
+    contextText = textarea.value.toLowerCase()
+    const labels = new Map<string, string>()
+    for (const r of readings) for (const mk of r.marks) labels.set(mk.id, mk.label)
+    contextSeeds = [...labels.entries()]
+      .filter(([, l]) => matchesContext(l))
+      .slice(0, 5)
+      .map(([id, label]) => ({ id, label }))
+    board.clearGhosts()
+    board.seedGhosts(contextSeeds)
+    opts.onSeed?.()
+  })
+  el.querySelector<HTMLButtonElement>('[data-act="clear"]')!.addEventListener('click', () => {
+    for (const t of contextTextareas) t.value = ''
+    contextText = ''
+    contextSeeds = []
+    board.clearGhosts()
   })
 }
-seedBtn.addEventListener('click', () => {
-  contextText = contextTextarea.value.toLowerCase()
-  const labels = new Map<string, string>()
-  for (const r of readings) for (const mk of r.marks) labels.set(mk.id, mk.label)
-  contextSeeds = [...labels.entries()]
-    .filter(([, l]) => matchesContext(l))
-    .slice(0, 5)
-    .map(([id, label]) => ({ id, label }))
-  board.clearGhosts()
-  board.seedGhosts(contextSeeds)
-  sheet.set('peek')
-})
-clearBtn.addEventListener('click', () => {
-  contextTextarea.value = ''
-  contextText = ''
-  contextSeeds = []
-  board.clearGhosts()
-})
+buildContext(contextEl, { onSeed: () => sheet.set('peek') })
+buildContext(contextElD, {}) // the popover stays open after seeding; only Escape/drop close it
 
+ctxOpenBtn.addEventListener('click', () => layout.showContext())
+
+syncCtxOpenVisibility()
 sheet.set('peek')
 window.addEventListener('resize', () => {
   sheet.set(sheet.get())
