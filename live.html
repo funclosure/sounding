@@ -4,28 +4,186 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sounding — live</title>
-    <link rel="stylesheet" href="/src/ui/style.css" />
-    <link rel="stylesheet" href="/src/ui/live.css" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="/src/ui/board/board.css" />
+    <style>
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--page, var(--ground));
+        color: var(--page-ink, var(--ink));
+        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      /* the board fills the viewport: no phone frame, the screen root is the page */
+      .screen {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr);
+        position: relative;
+        isolation: isolate;
+        overflow: hidden;
+        background: var(--ground);
+        color: var(--ink);
+        user-select: none;
+      }
+      .screen::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        opacity: 0.55;
+        background:
+          radial-gradient(ellipse 60% 40% at 30% 35%, var(--ground-2) 0%, transparent 70%),
+          radial-gradient(ellipse 50% 45% at 72% 62%, var(--ground-2) 0%, transparent 70%);
+      }
+
+      /* status strip: state dot + word, clock, counters (no speed buttons — this is live) */
+      .status {
+        z-index: 2;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: end;
+        padding: 14px 22px 0;
+        font-size: 11.5px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--chrome);
+      }
+      .status .state {
+        justify-self: start;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .status .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--chrome-2);
+      }
+      .screen.listening .status .dot {
+        background: var(--accent);
+        animation: breathe 1.6s ease-in-out infinite;
+      }
+      .screen.slack .status .dot {
+        background: var(--chrome-2);
+        animation: none;
+      }
+      .status .clock {
+        justify-self: center;
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        color: var(--ink);
+        letter-spacing: 0.08em;
+      }
+      .status .counters {
+        justify-self: end;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: var(--chrome-2);
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.5);
+          opacity: 0.55;
+        }
+      }
+
+      /* on wide screens, centre the sheet's reading content; the board keeps the full width */
+      @media (min-width: 820px) {
+        .sheet .context,
+        .sheet .transcript,
+        .sheet .chart {
+          max-width: 760px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .status .dot {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <header>
-      <select id="live-interp" title="Interpreter">
-        <option value="gemini">gemini</option>
-        <option value="claude">claude</option>
-        <option value="recurrence">recurrence</option>
-      </select>
-      <button id="listen">Listen</button>
-      <span id="live-status"></span>
-      <span id="clock">0:00</span>
-      <span id="slack-indicator" hidden>slack</span>
-      <span id="counters"></span>
-    </header>
-    <main>
-      <div id="stage">
-        <svg id="chart"></svg>
-        <div id="heard"></div>
+    <main class="screen" id="screen">
+      <div class="status">
+        <div class="state"><span class="dot"></span><span id="state">ready</span></div>
+        <div class="clock" id="clock">0:00</div>
+        <div class="counters" id="counters"></div>
       </div>
-      <aside id="inspector"><p>Click a mark to see its transition history.</p></aside>
+
+      <div class="field" id="field"></div>
+      <div class="heard" id="heard"></div>
+
+      <div class="controls">
+        <button class="big" id="big" aria-label="Drop"><i></i></button>
+        <div class="hint" id="hint"></div>
+      </div>
+
+      <div class="scrim" id="scrim"></div>
+      <div class="sheet" id="sheet" data-detent="peek">
+        <div class="grab" id="grab"><i></i></div>
+        <div class="tabs" id="tabs" role="tablist">
+          <button role="tab" data-tab="context" aria-selected="false">Context</button>
+          <button role="tab" data-tab="transcript" aria-selected="true">Transcript</button>
+          <button role="tab" data-tab="chart" aria-selected="false">Chart</button>
+        </div>
+        <div class="body" id="sheetbody">
+          <div class="pane" data-pane="context">
+            <div class="context" id="context">
+              <h3>What are you circling already?</h3>
+              <textarea id="ctxtext" placeholder="A question, a few notes, a name…"></textarea>
+              <div class="chips">
+                <button class="chip" data-ctx="A question I keep coming back to.">a question</button>
+                <button class="chip" data-ctx="Notes from last time.">notes from last time</button>
+                <button class="chip" data-ctx="A previous sounding.">a previous sounding</button>
+              </div>
+              <p class="note">
+                Context seeds faint marks on the board. They stay faint until your talking actually reaches them,
+                then they become real. Nothing you bring counts as something you said. Seeding before you drop only
+                stores the text — labels aren't known until you start talking.
+              </p>
+              <div class="row">
+                <button class="act" id="ctxadd">Seed the board</button>
+                <button class="act quiet" id="ctxclear">Clear</button>
+              </div>
+            </div>
+          </div>
+          <div class="pane on" data-pane="transcript">
+            <div class="transcript" id="transcript"></div>
+          </div>
+          <div class="pane" data-pane="chart">
+            <div class="chart">
+              <div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div>
+              <div class="surfaced" id="surfacedbox"></div>
+              <svg
+                id="chartsvg"
+                viewBox="0 0 390 560"
+                preserveAspectRatio="none"
+                aria-label="Prominence of each concept over the sounding"
+              ></svg>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
     <script type="module" src="/src/ui/live.ts"></script>
   </body>
