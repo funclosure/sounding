@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "cast": "tsx src/cli/cast.ts",
     "compare": "tsx src/cli/compare.ts",
+    "design": "node scripts/build-design.mjs",
     "live": "tsx src/live/server.ts"
   },
   "devDependencies": {

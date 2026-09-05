@@ -1,0 +1,582 @@
+<meta charset="utf-8">
+<title>Sounding on a phone</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #E7EFF2;      /* paper chart */
+    --ground-2: #DCE7EB;
+    --ink: #10303B;
+    --mark: #143C49;
+    --chrome: #5B7A86;
+    --chrome-2: #8AA3AD;
+    --line: #C3D3D9;
+    --accent: #EF5A2A;      /* buoy */
+    --bezel: #15242B;
+    --sheet: #F7FAFB;
+    --page: #F0F4F5;
+    --page-ink: #22343B;
+    --page-muted: #6B7F87;
+    --area: rgba(20, 60, 73, 0.22);
+    --scrim: rgba(16, 48, 59, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #071620; --ground-2: #0B1F2B; --ink: #DCE8EC; --mark: #E8F1F4;
+      --chrome: #7C97A2; --chrome-2: #56717C; --line: #1D3441; --accent: #FF7A4D;
+      --bezel: #050C11; --sheet: #0E2432; --page: #0A1216; --page-ink: #D6E0E4; --page-muted: #7F939B;
+      --area: rgba(220, 232, 236, 0.22); --scrim: rgba(0, 0, 0, 0.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #071620; --ground-2: #0B1F2B; --ink: #DCE8EC; --mark: #E8F1F4;
+    --chrome: #7C97A2; --chrome-2: #56717C; --line: #1D3441; --accent: #FF7A4D;
+    --bezel: #050C11; --sheet: #0E2432; --page: #0A1216; --page-ink: #D6E0E4; --page-muted: #7F939B;
+    --area: rgba(220, 232, 236, 0.22); --scrim: rgba(0, 0, 0, 0.25);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--page-ink); font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+  .page-head { max-width: 62ch; margin: 0 auto; padding: 28px 20px 12px; }
+  .page-head h1 { font-family: "Fraunces", "Iowan Old Style", Georgia, serif; font-weight: 400; font-variation-settings: "opsz" 72; font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+  .page-head p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--page-muted); }
+  .page-head b { color: var(--page-ink); font-weight: 500; }
+  .stage { display: grid; place-items: center; padding: 12px 16px 28px; }
+
+  /* ---------- the phone ---------- */
+  .phone { width: 390px; height: 800px; max-width: 100%; border-radius: 48px; padding: 12px; background: var(--bezel); box-shadow: 0 30px 60px rgba(0,0,0,0.25), inset 0 0 0 1px rgba(255,255,255,0.06); position: relative; }
+  .screen { width: 100%; height: 100%; border-radius: 38px; overflow: hidden; background: var(--ground); color: var(--ink); display: grid; grid-template-rows: 54px minmax(0, 1fr) 150px; grid-template-columns: minmax(0, 1fr); position: relative; isolation: isolate; user-select: none; }
+  .screen::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: 0.55; background: radial-gradient(ellipse 60% 40% at 30% 35%, var(--ground-2) 0%, transparent 70%), radial-gradient(ellipse 50% 45% at 72% 62%, var(--ground-2) 0%, transparent 70%); }
+
+  /* status strip */
+  .status { z-index: 2; display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; padding: 14px 22px 0; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--chrome); }
+  .status .state { justify-self: start; display: flex; align-items: center; gap: 8px; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chrome-2); }
+  .screen.listening .status .dot { background: var(--accent); animation: breathe 1.6s ease-in-out infinite; }
+  .screen.slack .status .dot { background: var(--chrome-2); animation: none; }
+  .status .clock { justify-self: center; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink); letter-spacing: 0.08em; cursor: pointer; }
+  .status .speed { justify-self: end; display: flex; gap: 2px; }
+  .status .speed button { all: unset; cursor: pointer; padding: 2px 6px; border-radius: 6px; color: var(--chrome-2); font: inherit; font-size: 11px; letter-spacing: 0.04em; }
+  .status .speed button[aria-pressed="true"] { color: var(--ink); background: var(--ground-2); }
+  .status .speed button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @keyframes breathe { 0%,100% { transform: scale(1); opacity: 1 } 50% { transform: scale(1.5); opacity: 0.55 } }
+
+  /* the board */
+  .field { position: relative; z-index: 1; overflow: hidden; min-height: 0; }
+  .field.slack .mark { opacity: 0.45 !important; }
+  .mark { position: absolute; left: 0; top: 0; margin: 0; white-space: nowrap; cursor: pointer; font-family: "Fraunces", "Iowan Old Style", Georgia, serif; font-variation-settings: "opsz" 144, "wght" 400, "SOFT" 60; color: var(--mark); line-height: 1; transform: translate(-50%, -50%); transition: transform 1.4s cubic-bezier(.2,.7,.2,1), font-size 1.4s cubic-bezier(.2,.7,.2,1), opacity 1.4s ease, font-variation-settings 1.4s ease; will-change: transform, font-size; }
+  .mark::after { content: ""; position: absolute; left: 0; right: 0; bottom: -6px; height: 3px; border-radius: 2px; background: var(--accent); opacity: 0; transform: scaleX(0.3); transform-origin: left; }
+  .mark.arrive::after { animation: buoy 2.6s ease-out forwards; }
+  @keyframes buoy { 0% { opacity: 1; transform: scaleX(0.3) } 25% { opacity: 1; transform: scaleX(1) } 100% { opacity: 0; transform: scaleX(1) } }
+  .mark.arrive { animation: rise 1.4s cubic-bezier(.2,.7,.2,1); }
+  @keyframes rise { from { opacity: 0; transform: translate(-50%, -20%) } }
+  .mark.sink { pointer-events: none; color: var(--chrome-2); transition: transform 1.8s cubic-bezier(.4,0,.8,.4), opacity 1.8s ease, color 0.6s ease, font-size 1.8s ease; opacity: 0 !important; }
+  .mark.absorbed { pointer-events: none; opacity: 0 !important; transition: transform 1.2s ease, opacity 0.9s ease; }
+  .mark.ghost { color: var(--chrome-2); font-style: italic; opacity: 0.5 !important; font-variation-settings: "opsz" 144, "wght" 300, "SOFT" 60 !important; }
+  .mark.ghost::before { content: ""; position: absolute; left: 0; right: 0; bottom: -5px; border-bottom: 1px dashed var(--chrome-2); }
+  .mark.lit { color: var(--accent); }
+  .mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 4px; }
+  .field.instant .mark { transition: none !important; animation: none !important; }
+  .field.instant .mark::after { animation: none !important; }
+
+  /* heard words */
+  .heard { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+  .word { position: absolute; transform: translate(-50%, -50%) scale(1); opacity: 0.85; white-space: nowrap; font-family: "Fraunces", Georgia, serif; font-style: italic; font-variation-settings: "opsz" 144, "wght" 300; font-size: 40px; color: var(--chrome); letter-spacing: -0.01em; transition: transform 1.5s cubic-bezier(.3,0,.7,.3), opacity 1.5s ease; }
+  .word.gone { transform: translate(-50%, -50%) scale(0.22); opacity: 0; }
+
+  /* controls (sit above the sheet's peek) */
+  .controls { z-index: 4; display: grid; place-items: center; align-content: start; padding: 2px 22px 0; gap: 8px; }
+  .big { all: unset; cursor: pointer; position: relative; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; box-shadow: inset 0 0 0 2px var(--line); transition: box-shadow 0.3s ease, transform 0.15s ease; }
+  .big:active { transform: scale(0.96); }
+  .big:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  .big i { display: block; width: 54px; height: 54px; border-radius: 50%; background: var(--accent); transition: width 0.35s cubic-bezier(.2,.7,.2,1), height 0.35s cubic-bezier(.2,.7,.2,1), border-radius 0.35s cubic-bezier(.2,.7,.2,1); }
+  .screen.listening .big { box-shadow: inset 0 0 0 2px var(--accent); animation: ring 1.8s ease-in-out infinite; }
+  .screen.listening .big i { width: 24px; height: 24px; border-radius: 6px; }
+  @keyframes ring { 0%,100% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 0 rgba(239,90,42,0.35) } 50% { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 10px rgba(239,90,42,0) } }
+  .screen.surfaced .big i { background: var(--chrome-2); }
+  .hint { font-size: 11px; color: var(--chrome-2); letter-spacing: 0.04em; text-align: center; min-height: 14px; }
+  .hint button { all: unset; cursor: pointer; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
+  .hint button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .hint b { font-weight: 500; color: var(--accent); font-family: "Fraunces", Georgia, serif; font-size: 12.5px; letter-spacing: 0; text-transform: none; }
+
+  /* ---------- the sheet: peek / medium / large ---------- */
+  .scrim { position: absolute; inset: 0; z-index: 8; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity 0.35s ease; }
+  .scrim.on { opacity: 1; pointer-events: auto; }
+  .sheet { position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 9; background: var(--sheet); color: var(--ink); border-radius: 22px 22px 38px 38px; box-shadow: 0 -10px 40px rgba(0,0,0,0.16); display: grid; grid-template-rows: auto auto minmax(0, 1fr); transform: translateY(calc(100% - 62px)); transition: transform 0.45s cubic-bezier(.2,.7,.2,1); will-change: transform; }
+  .sheet.dragging { transition: none; }
+  .sheet .grab { display: grid; place-items: center; padding: 8px 0 2px; cursor: grab; touch-action: none; }
+  .sheet .grab i { width: 36px; height: 4px; border-radius: 2px; background: var(--chrome-2); opacity: 0.6; }
+  .sheet .tabs { display: grid; grid-template-columns: repeat(3, 1fr); padding: 2px 22px 8px; gap: 6px; touch-action: none; }
+  .sheet .tabs button { all: unset; cursor: pointer; text-align: center; padding: 8px 0; border-radius: 12px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chrome); }
+  .sheet .tabs button[aria-selected="true"] { background: var(--ground); color: var(--ink); }
+  .sheet .tabs button:focus-visible { outline: 2px solid var(--accent); }
+  .sheet .body { min-height: 0; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr); }
+  .sheet .pane { min-height: 0; overflow: hidden; display: none; grid-template-rows: minmax(0, 1fr); }
+  .sheet .pane.on { display: grid; }
+
+  /* transcript */
+  .transcript { overflow-y: auto; min-height: 0; padding: 4px 22px 28px; font-family: "Fraunces", Georgia, serif; font-variation-settings: "opsz" 18, "wght" 400; font-size: 16.5px; line-height: 1.5; color: var(--ink); scrollbar-width: none; }
+  .transcript::-webkit-scrollbar { display: none; }
+  .transcript .seg { display: inline; }
+  .transcript .seg.future { display: none; }
+  .transcript .stamp { display: block; margin: 14px 0 2px; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: 0.1em; color: var(--chrome-2); }
+  .transcript .pend { color: var(--chrome); font-style: italic; }
+  .transcript .empty { color: var(--chrome-2); font-family: "IBM Plex Mono", monospace; font-size: 12px; line-height: 1.6; }
+  .transcript .caret { display: inline-block; width: 2px; height: 1em; background: var(--accent); vertical-align: -0.15em; margin-left: 2px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0 } }
+  .screen:not(.listening) .transcript .caret { display: none; }
+
+  /* chart */
+  .chart { position: relative; overflow: hidden; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+  .chart .sub { padding: 0 22px 6px; font-size: 11px; color: var(--chrome-2); letter-spacing: 0.02em; }
+  .chart .surfaced { padding: 0 22px 10px; display: none; }
+  .chart .surfaced.on { display: block; }
+  .chart .surfaced h3 { margin: 0 0 8px; font-family: "Fraunces", Georgia, serif; font-weight: 400; font-variation-settings: "opsz" 72; font-size: 20px; }
+  .chart .surfaced ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .chart .surfaced li { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; font-size: 13px; }
+  .chart .surfaced li .lbl { font-family: "Fraunces", Georgia, serif; font-variation-settings: "opsz" 48; font-size: 15px; }
+  .chart .surfaced li .bar { grid-column: 1 / -1; height: 2px; background: var(--line); position: relative; }
+  .chart .surfaced li .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+  .chart .surfaced li .pct { color: var(--chrome); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .chart svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: ew-resize; }
+  .chart .lane-label { font-family: "Fraunces", Georgia, serif; font-size: 12.5px; fill: var(--ink); cursor: pointer; }
+  .chart .lane-label.dim { fill: var(--chrome-2); }
+  .chart .area { fill: var(--area); }
+  .chart .area.lit { fill: var(--accent); }
+  .chart .base { stroke: var(--line); stroke-width: 1; }
+  .chart .axis text { font-family: "IBM Plex Mono", monospace; font-size: 10px; fill: var(--chrome-2); letter-spacing: 0.08em; }
+  .chart .axis line { stroke: var(--line); }
+  .chart .head { stroke: var(--accent); stroke-width: 1.5; }
+  .chart .head-time { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; fill: var(--accent); }
+
+  /* context */
+  .context { overflow-y: auto; min-height: 0; padding: 2px 22px 28px; }
+  .context h3 { margin: 0 0 10px; font-family: "Fraunces", Georgia, serif; font-weight: 400; font-variation-settings: "opsz" 72; font-size: 21px; }
+  .context textarea { width: 100%; min-height: 96px; resize: vertical; border: 0; border-radius: 12px; padding: 12px 14px; background: var(--ground); color: var(--ink); font-family: "Fraunces", Georgia, serif; font-variation-settings: "opsz" 18; font-size: 15.5px; line-height: 1.45; }
+  .context textarea:focus-visible { outline: 2px solid var(--accent); }
+  .context .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+  .context .chip { all: unset; cursor: pointer; padding: 6px 10px; border-radius: 14px; background: var(--ground); color: var(--chrome); font-size: 11px; }
+  .context .chip:focus-visible { outline: 2px solid var(--accent); }
+  .context .note { font-size: 11px; line-height: 1.5; color: var(--chrome); margin: 10px 0 0; }
+  .context .row { display: flex; gap: 18px; margin-top: 14px; }
+  .context .act { all: unset; cursor: pointer; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+  .context .act.quiet { color: var(--chrome); }
+  .context .act:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+
+  .legend { max-width: 62ch; margin: 0 auto; padding: 0 20px 36px; font-size: 12px; line-height: 1.65; color: var(--page-muted); }
+  .legend b { color: var(--page-ink); font-weight: 500; }
+  .legend span.sw { display: inline-block; width: 10px; height: 3px; background: var(--accent); border-radius: 2px; vertical-align: middle; margin: 0 4px 0 2px; }
+
+  @media (prefers-reduced-motion: reduce) { .mark, .word, .sheet, .scrim { transition-duration: 0.2s; } .mark.arrive, .mark.arrive::after, .status .dot, .caret { animation: none; } }
+  @media (max-width: 420px) { .phone { width: 100%; height: 92vh; border-radius: 0; padding: 0; } .screen { border-radius: 0; } }
+</style>
+
+<header class="page-head">
+  <h1>Sounding on a phone</h1>
+  <p>A working prototype of the redesigned screen, replaying a real sounding log (synthetic-memo.gemini.jsonl, 63s, 16 interpretation calls). The board is the whole screen. Tap the round button to <b>drop</b> a sounding; tap it again to <b>surface</b>. Pull the sheet up from the bottom for the <b>transcript</b> and the <b>chart</b>; it rests at a medium and a large height. Drag the chart to replay any moment. Tap a mark to follow it.</p>
+</header>
+
+<main class="stage">
+  <div class="phone">
+    <div class="screen" id="screen">
+      <div class="status">
+        <div class="state"><span class="dot"></span><span id="state">ready</span></div>
+        <div class="clock" id="clock" title="tap to pause">0:00</div>
+        <div class="speed" role="group" aria-label="Replay speed">
+          <button aria-pressed="true" data-speed="1">1×</button><button aria-pressed="false" data-speed="2">2×</button><button aria-pressed="false" data-speed="4">4×</button>
+        </div>
+      </div>
+      <div class="field" id="field"></div>
+      <div class="heard" id="heard"></div>
+      <div class="controls">
+        <button class="big" id="big" aria-label="Drop"><i></i></button>
+        <div class="hint" id="hint"></div>
+      </div>
+
+      <div class="scrim" id="scrim"></div>
+      <div class="sheet" id="sheet" data-detent="peek">
+        <div class="grab" id="grab"><i></i></div>
+        <div class="tabs" id="tabs" role="tablist">
+          <button role="tab" data-tab="context" aria-selected="false">Context</button>
+          <button role="tab" data-tab="transcript" aria-selected="true">Transcript</button>
+          <button role="tab" data-tab="chart" aria-selected="false">Chart</button>
+        </div>
+        <div class="body">
+          <div class="pane" data-pane="context">
+            <div class="context" id="context"></div>
+          </div>
+          <div class="pane on" data-pane="transcript">
+            <div class="transcript" id="transcript"></div>
+          </div>
+          <div class="pane" data-pane="chart">
+            <div class="chart">
+              <div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div>
+              <div class="surfaced" id="surfacedbox"></div>
+              <svg id="chartsvg" viewBox="0 0 390 560" preserveAspectRatio="none" aria-label="Prominence of each concept over the sounding"></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="legend">
+  <p><b>How to read it.</b> The board holds at most seven marks; size is prominence relative to the others on screen, not a score. A new mark rises with a<span class="sw"></span>buoy line that fades in a couple of seconds; the one it displaces sinks. The words you say flash and shrink within a second of saying them. When you go quiet the board dims to <b>slack</b>. <b>Context</b>, in the sheet, seeds faint dashed marks for what you already know you're circling; they only become real when your talking reaches them. <b>Surface</b> ends the sounding; the chart then shows the final reading ranked above the lanes.</p>
+</footer>
+
+<script>
+const DATA = {"endT":62800,"readings":[{"t":100,"m":[],"tr":[],"s":false},{"t":4600,"m":[{"id":"c1","l":"offer letter","p":0.73},{"id":"c2","l":"staring at it","p":0.27}],"tr":[{"k":"appeared","id":"c1","by":null,"from":null},{"k":"appeared","id":"c2","by":null,"from":null}],"s":false},{"t":8800,"m":[{"id":"c1","l":"offer letter","p":0.694},{"id":"c3","l":"salary","p":0.173},{"id":"c2","l":"staring at it","p":0.133}],"tr":[{"k":"appeared","id":"c3","by":null,"from":null}],"s":false},{"t":11800,"m":[{"id":"c1","l":"offer letter","p":0.699},{"id":"c3","l":"salary","p":0.171},{"id":"c2","l":"staring at it","p":0.131}],"tr":[],"s":false},{"t":12200,"m":[{"id":"c1","l":"offer letter","p":0.703},{"id":"c3","l":"salary","p":0.168},{"id":"c2","l":"staring at it","p":0.129}],"tr":[],"s":false},{"t":12600,"m":[{"id":"c1","l":"offer letter","p":0.69},{"id":"c3","l":"salary","p":0.226},{"id":"c2","l":"staring at it","p":0.084}],"tr":[],"s":false},{"t":16000,"m":[{"id":"c1","l":"offer letter","p":0.612},{"id":"c3","l":"salary","p":0.237},{"id":"c4","l":"stall when things get real","p":0.09},{"id":"c2","l":"staring at it","p":0.061}],"tr":[{"k":"appeared","id":"c4","by":null,"from":null}],"s":false},{"t":19000,"m":[{"id":"c1","l":"offer letter","p":0.578},{"id":"c3","l":"salary","p":0.188},{"id":"c4","l":"stall when things get real","p":0.141},{"id":"c2","l":"staring at it","p":0.049},{"id":"c5","l":"commute","p":0.044}],"tr":[{"k":"appeared","id":"c5","by":null,"from":null}],"s":false},{"t":20300,"m":[{"id":"c1","l":"offer letter","p":0.571},{"id":"c3","l":"salary","p":0.194},{"id":"c4","l":"stall when things get real","p":0.163},{"id":"c2","l":"staring at it","p":0.038},{"id":"c5","l":"commute","p":0.035}],"tr":[],"s":false},{"t":24200,"m":[{"id":"c1","l":"offer letter","p":0.579},{"id":"c4","l":"stall when things get real","p":0.172},{"id":"c3","l":"salary","p":0.158},{"id":"c5","l":"commute","p":0.06},{"id":"c2","l":"staring at it","p":0.031}],"tr":[],"s":false},{"t":27500,"m":[{"id":"c1","l":"offer letter","p":0.542},{"id":"c4","l":"stall when things get real","p":0.204},{"id":"c3","l":"salary","p":0.134},{"id":"c5","l":"commute","p":0.051},{"id":"c6","l":"sister's advice","p":0.043},{"id":"c2","l":"staring at it","p":0.026}],"tr":[{"k":"appeared","id":"c6","by":null,"from":null}],"s":false},{"t":31500,"m":[{"id":"c1","l":"offer letter","p":0.534},{"id":"c4","l":"stall when things get real","p":0.222},{"id":"c3","l":"salary","p":0.113},{"id":"c6","l":"sister's advice","p":0.065},{"id":"c5","l":"commute","p":0.043},{"id":"c2","l":"staring at it","p":0.022}],"tr":[],"s":false},{"t":35700,"m":[{"id":"c1","l":"offer letter","p":0.532},{"id":"c4","l":"stall when things get real","p":0.221},{"id":"c3","l":"salary","p":0.113},{"id":"c6","l":"sister's advice","p":0.069},{"id":"c5","l":"commute","p":0.043},{"id":"c2","l":"staring at it","p":0.022}],"tr":[],"s":false},{"t":36100,"m":[{"id":"c1","l":"offer letter","p":0.53},{"id":"c4","l":"stall when things get real","p":0.22},{"id":"c3","l":"salary","p":0.113},{"id":"c6","l":"sister's advice","p":0.072},{"id":"c5","l":"commute","p":0.043},{"id":"c2","l":"staring at it","p":0.022}],"tr":[],"s":false},{"t":36500,"m":[{"id":"c1","l":"offer letter","p":0.528},{"id":"c4","l":"stall when things get real","p":0.219},{"id":"c3","l":"salary","p":0.112},{"id":"c6","l":"sister's advice","p":0.075},{"id":"c5","l":"commute","p":0.043},{"id":"c2","l":"staring at it","p":0.022}],"tr":[],"s":false},{"t":36600,"m":[{"id":"c1","l":"offer letter","p":0.487},{"id":"c4","l":"stall when things get real","p":0.233},{"id":"c6","l":"sister's advice","p":0.106},{"id":"c3","l":"salary","p":0.097},{"id":"c5","l":"commute","p":0.037},{"id":"c7","l":"the brave one","p":0.021},{"id":"c2","l":"staring at it","p":0.019}],"tr":[{"k":"appeared","id":"c7","by":null,"from":null}],"s":false},{"t":37800,"m":[{"id":"c1","l":"offer letter","p":0.488},{"id":"c4","l":"stall when things get real","p":0.232},{"id":"c6","l":"sister's advice","p":0.105},{"id":"c3","l":"salary","p":0.097},{"id":"c5","l":"commute","p":0.037},{"id":"c7","l":"the brave one","p":0.021},{"id":"c2","l":"staring at it","p":0.019}],"tr":[],"s":false},{"t":38200,"m":[{"id":"c1","l":"offer letter","p":0.49},{"id":"c4","l":"stall when things get real","p":0.232},{"id":"c6","l":"sister's advice","p":0.105},{"id":"c3","l":"salary","p":0.097},{"id":"c5","l":"commute","p":0.037},{"id":"c7","l":"the brave one","p":0.021},{"id":"c2","l":"staring at it","p":0.019}],"tr":[],"s":false},{"t":38600,"m":[{"id":"c1","l":"offer letter","p":0.491},{"id":"c4","l":"stall when things get real","p":0.231},{"id":"c6","l":"sister's advice","p":0.105},{"id":"c3","l":"salary","p":0.096},{"id":"c5","l":"commute","p":0.037},{"id":"c7","l":"the brave one","p":0.021},{"id":"c2","l":"staring at it","p":0.019}],"tr":[],"s":false},{"t":39000,"m":[{"id":"c1","l":"offer letter","p":0.494},{"id":"c4","l":"stall when things get real","p":0.23},{"id":"c6","l":"sister's advice","p":0.104},{"id":"c3","l":"salary","p":0.096},{"id":"c5","l":"commute","p":0.037},{"id":"c7","l":"the brave one","p":0.021},{"id":"c2","l":"staring at it","p":0.019}],"tr":[],"s":false},{"t":39300,"m":[{"id":"c1","l":"offer letter","p":0.476},{"id":"c4","l":"stall when things get real","p":0.247},{"id":"c6","l":"sister's advice","p":0.093},{"id":"c3","l":"salary","p":0.086},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.033},{"id":"c2","l":"staring at it","p":0.017}],"tr":[],"s":false},{"t":41700,"m":[{"id":"c1","l":"offer letter","p":0.474},{"id":"c4","l":"stall when things get real","p":0.246},{"id":"c6","l":"sister's advice","p":0.096},{"id":"c3","l":"salary","p":0.086},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.033},{"id":"c2","l":"staring at it","p":0.017}],"tr":[],"s":false},{"t":42100,"m":[{"id":"c1","l":"offer letter","p":0.473},{"id":"c4","l":"stall when things get real","p":0.246},{"id":"c6","l":"sister's advice","p":0.098},{"id":"c3","l":"salary","p":0.085},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.033},{"id":"c2","l":"staring at it","p":0.017}],"tr":[],"s":false},{"t":42500,"m":[{"id":"c1","l":"offer letter","p":0.472},{"id":"c4","l":"stall when things get real","p":0.245},{"id":"c6","l":"sister's advice","p":0.101},{"id":"c3","l":"salary","p":0.085},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.033},{"id":"c2","l":"staring at it","p":0.017}],"tr":[],"s":false},{"t":42900,"m":[{"id":"c1","l":"offer letter","p":0.419},{"id":"c4","l":"stall when things get real","p":0.257},{"id":"c6","l":"sister's advice","p":0.135},{"id":"c3","l":"salary","p":0.076},{"id":"c7","l":"the brave one","p":0.07},{"id":"c5","l":"commute","p":0.029},{"id":"c2","l":"staring at it","p":0.015}],"tr":[],"s":false},{"t":43400,"m":[{"id":"c1","l":"offer letter","p":0.421},{"id":"c4","l":"stall when things get real","p":0.256},{"id":"c6","l":"sister's advice","p":0.134},{"id":"c3","l":"salary","p":0.075},{"id":"c7","l":"the brave one","p":0.07},{"id":"c5","l":"commute","p":0.029},{"id":"c2","l":"staring at it","p":0.015}],"tr":[],"s":false},{"t":43800,"m":[{"id":"c1","l":"offer letter","p":0.422},{"id":"c4","l":"stall when things get real","p":0.256},{"id":"c6","l":"sister's advice","p":0.134},{"id":"c3","l":"salary","p":0.075},{"id":"c7","l":"the brave one","p":0.07},{"id":"c5","l":"commute","p":0.029},{"id":"c2","l":"staring at it","p":0.015}],"tr":[],"s":false},{"t":44200,"m":[{"id":"c1","l":"offer letter","p":0.424},{"id":"c4","l":"stall when things get real","p":0.255},{"id":"c6","l":"sister's advice","p":0.134},{"id":"c3","l":"salary","p":0.075},{"id":"c7","l":"the brave one","p":0.069},{"id":"c5","l":"commute","p":0.029},{"id":"c2","l":"staring at it","p":0.015}],"tr":[],"s":false},{"t":44600,"m":[{"id":"c1","l":"offer letter","p":0.427},{"id":"c4","l":"stall when things get real","p":0.254},{"id":"c6","l":"sister's advice","p":0.133},{"id":"c3","l":"salary","p":0.075},{"id":"c7","l":"the brave one","p":0.069},{"id":"c5","l":"commute","p":0.029},{"id":"c2","l":"staring at it","p":0.015}],"tr":[],"s":false},{"t":45000,"m":[{"id":"c1","l":"offer letter","p":0.428},{"id":"c4","l":"stall when things get real","p":0.253},{"id":"c6","l":"sister's advice","p":0.133},{"id":"c3","l":"salary","p":0.074},{"id":"c7","l":"the brave one","p":0.069},{"id":"c5","l":"commute","p":0.028},{"id":"c2","l":"staring at it","p":0.015}],"tr":[],"s":false},{"t":45400,"m":[{"id":"c1","l":"offer letter","p":0.43},{"id":"c4","l":"stall when things get real","p":0.252},{"id":"c6","l":"sister's advice","p":0.132},{"id":"c3","l":"salary","p":0.074},{"id":"c7","l":"the brave one","p":0.069},{"id":"c5","l":"commute","p":0.028},{"id":"c2","l":"staring at it","p":0.015}],"tr":[],"s":false},{"t":45800,"m":[{"id":"c1","l":"offer letter","p":0.433},{"id":"c4","l":"stall when things get real","p":0.251},{"id":"c6","l":"sister's advice","p":0.132},{"id":"c3","l":"salary","p":0.074},{"id":"c7","l":"the brave one","p":0.068},{"id":"c5","l":"commute","p":0.028},{"id":"c2","l":"staring at it","p":0.014}],"tr":[],"s":false},{"t":46200,"m":[{"id":"c1","l":"offer letter","p":0.422},{"id":"c4","l":"stall when things get real","p":0.252},{"id":"c6","l":"sister's advice","p":0.158},{"id":"c3","l":"salary","p":0.067},{"id":"c7","l":"the brave one","p":0.062},{"id":"c5","l":"commute","p":0.026},{"id":"c2","l":"staring at it","p":0.013}],"tr":[],"s":false},{"t":46400,"m":[{"id":"c1","l":"offer letter","p":0.416},{"id":"c4","l":"stall when things get real","p":0.248},{"id":"c6","l":"sister's advice","p":0.155},{"id":"c3","l":"salary","p":0.066},{"id":"c7","l":"the brave one","p":0.061},{"id":"c8","l":"comparing myself","p":0.029},{"id":"c5","l":"commute","p":0.025}],"tr":[{"k":"displaced","id":"c2","by":"c8","from":null},{"k":"appeared","id":"c8","by":null,"from":null}],"s":false},{"t":49900,"m":[{"id":"c1","l":"offer letter","p":0.415},{"id":"c4","l":"stall when things get real","p":0.247},{"id":"c6","l":"sister's advice","p":0.157},{"id":"c3","l":"salary","p":0.066},{"id":"c7","l":"the brave one","p":0.061},{"id":"c8","l":"comparing myself","p":0.029},{"id":"c5","l":"commute","p":0.025}],"tr":[],"s":false},{"t":50200,"m":[{"id":"c1","l":"offer letter","p":0.392},{"id":"c4","l":"stall when things get real","p":0.242},{"id":"c6","l":"sister's advice","p":0.177},{"id":"c3","l":"salary","p":0.058},{"id":"c8","l":"comparing myself","p":0.055},{"id":"c7","l":"the brave one","p":0.054},{"id":"c5","l":"commute","p":0.022}],"tr":[],"s":false},{"t":53900,"m":[{"id":"c1","l":"offer letter","p":0.371},{"id":"c4","l":"stall when things get real","p":0.243},{"id":"c6","l":"sister's advice","p":0.193},{"id":"c8","l":"comparing myself","p":0.073},{"id":"c3","l":"salary","p":0.052},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.02}],"tr":[],"s":false},{"t":56000,"m":[{"id":"c1","l":"offer letter","p":0.372},{"id":"c4","l":"stall when things get real","p":0.243},{"id":"c6","l":"sister's advice","p":0.192},{"id":"c8","l":"comparing myself","p":0.073},{"id":"c3","l":"salary","p":0.052},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.02}],"tr":[],"s":false},{"t":56400,"m":[{"id":"c1","l":"offer letter","p":0.373},{"id":"c4","l":"stall when things get real","p":0.242},{"id":"c6","l":"sister's advice","p":0.192},{"id":"c8","l":"comparing myself","p":0.073},{"id":"c3","l":"salary","p":0.052},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.02}],"tr":[],"s":false},{"t":56800,"m":[{"id":"c1","l":"offer letter","p":0.375},{"id":"c4","l":"stall when things get real","p":0.242},{"id":"c6","l":"sister's advice","p":0.191},{"id":"c8","l":"comparing myself","p":0.073},{"id":"c3","l":"salary","p":0.052},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.02}],"tr":[],"s":false},{"t":57200,"m":[{"id":"c1","l":"offer letter","p":0.377},{"id":"c4","l":"stall when things get real","p":0.24},{"id":"c6","l":"sister's advice","p":0.19},{"id":"c8","l":"comparing myself","p":0.072},{"id":"c3","l":"salary","p":0.054},{"id":"c7","l":"the brave one","p":0.048},{"id":"c5","l":"commute","p":0.02}],"tr":[],"s":false},{"t":57600,"m":[{"id":"c1","l":"offer letter","p":0.377},{"id":"c4","l":"stall when things get real","p":0.239},{"id":"c6","l":"sister's advice","p":0.189},{"id":"c8","l":"comparing myself","p":0.072},{"id":"c3","l":"salary","p":0.055},{"id":"c7","l":"the brave one","p":0.047},{"id":"c5","l":"commute","p":0.02}],"tr":[],"s":false},{"t":58000,"m":[{"id":"c1","l":"offer letter","p":0.378},{"id":"c4","l":"stall when things get real","p":0.238},{"id":"c6","l":"sister's advice","p":0.188},{"id":"c8","l":"comparing myself","p":0.072},{"id":"c3","l":"salary","p":0.057},{"id":"c7","l":"the brave one","p":0.047},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":58400,"m":[{"id":"c1","l":"offer letter","p":0.379},{"id":"c4","l":"stall when things get real","p":0.236},{"id":"c6","l":"sister's advice","p":0.187},{"id":"c8","l":"comparing myself","p":0.071},{"id":"c3","l":"salary","p":0.061},{"id":"c7","l":"the brave one","p":0.047},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":58800,"m":[{"id":"c1","l":"offer letter","p":0.379},{"id":"c4","l":"stall when things get real","p":0.235},{"id":"c6","l":"sister's advice","p":0.186},{"id":"c8","l":"comparing myself","p":0.071},{"id":"c3","l":"salary","p":0.063},{"id":"c7","l":"the brave one","p":0.047},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":59200,"m":[{"id":"c1","l":"offer letter","p":0.38},{"id":"c4","l":"stall when things get real","p":0.234},{"id":"c6","l":"sister's advice","p":0.185},{"id":"c8","l":"comparing myself","p":0.07},{"id":"c3","l":"salary","p":0.065},{"id":"c7","l":"the brave one","p":0.046},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":59600,"m":[{"id":"c1","l":"offer letter","p":0.381},{"id":"c4","l":"stall when things get real","p":0.232},{"id":"c6","l":"sister's advice","p":0.184},{"id":"c8","l":"comparing myself","p":0.07},{"id":"c3","l":"salary","p":0.069},{"id":"c7","l":"the brave one","p":0.046},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":59900,"m":[{"id":"c1","l":"offer letter","p":0.381},{"id":"c4","l":"stall when things get real","p":0.231},{"id":"c6","l":"sister's advice","p":0.183},{"id":"c3","l":"salary","p":0.071},{"id":"c8","l":"comparing myself","p":0.069},{"id":"c7","l":"the brave one","p":0.046},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":60300,"m":[{"id":"c1","l":"offer letter","p":0.382},{"id":"c4","l":"stall when things get real","p":0.23},{"id":"c6","l":"sister's advice","p":0.182},{"id":"c3","l":"salary","p":0.073},{"id":"c8","l":"comparing myself","p":0.069},{"id":"c7","l":"the brave one","p":0.046},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":60700,"m":[{"id":"c1","l":"offer letter","p":0.382},{"id":"c4","l":"stall when things get real","p":0.229},{"id":"c6","l":"sister's advice","p":0.181},{"id":"c3","l":"salary","p":0.074},{"id":"c8","l":"comparing myself","p":0.069},{"id":"c7","l":"the brave one","p":0.045},{"id":"c5","l":"commute","p":0.019}],"tr":[],"s":false},{"t":60900,"m":[{"id":"c1","l":"offer letter","p":0.372},{"id":"c4","l":"stall when things get real","p":0.208},{"id":"c6","l":"sister's advice","p":0.2},{"id":"c8","l":"comparing myself","p":0.093},{"id":"c3","l":"salary","p":0.069},{"id":"c7","l":"the brave one","p":0.041},{"id":"c5","l":"commute","p":0.017}],"tr":[],"s":false},{"t":61300,"m":[{"id":"c1","l":"offer letter","p":0.364},{"id":"c4","l":"stall when things get real","p":0.203},{"id":"c6","l":"sister's advice","p":0.196},{"id":"c8","l":"comparing myself","p":0.091},{"id":"c3","l":"salary","p":0.068},{"id":"c7","l":"the brave one","p":0.04},{"id":"c9","l":"her blessing","p":0.039}],"tr":[{"k":"displaced","id":"c5","by":"c9","from":null},{"k":"appeared","id":"c9","by":null,"from":null}],"s":false}],"heard":[{"t":1500,"w":["offer"]},{"t":1800,"w":["offer","letter"]},{"t":2100,"w":["offer","letter","yesterday"]},{"t":2400,"w":["offer","letter","yesterday"]},{"t":2700,"w":["offer","letter","yesterday","keep"]},{"t":3000,"w":["offer","letter","yesterday","keep","staring"]},{"t":3300,"w":["offer","letter","yesterday","keep","staring"]},{"t":3600,"w":["offer","letter","yesterday","keep","staring"]},{"t":3900,"w":["offer","letter","yesterday","keep","staring","instead"]},{"t":4200,"w":["offer","letter","yesterday","keep","staring","instead"]},{"t":4500,"w":["offer","letter","yesterday","keep","staring","instead","signing"]},{"t":5440,"w":["salary"]},{"t":5740,"w":["salary"]},{"t":6040,"w":["salary","fine"]},{"t":6340,"w":["salary","fine","honestly"]},{"t":6640,"w":["salary","fine","honestly"]},{"t":6940,"w":["salary","fine","honestly"]},{"t":7240,"w":["salary","fine","honestly","salary"]},{"t":7540,"w":["salary","fine","honestly","salary"]},{"t":7840,"w":["salary","fine","honestly","salary","never"]},{"t":8140,"w":["salary","fine","honestly","salary","never"]},{"t":8440,"w":["salary","fine","honestly","salary","never","problem"]},{"t":9300,"w":["sister"]},{"t":9600,"w":["sister","called"]},{"t":9900,"w":["sister","called","last"]},{"t":10200,"w":["sister","called","last","night"]},{"t":10500,"w":["sister","called","last","night"]},{"t":10800,"w":["sister","called","last","night"]},{"t":11100,"w":["sister","called","last","night","talked"]},{"t":11400,"w":["sister","called","last","night","talked"]},{"t":11700,"w":["sister","called","last","night","talked","offer"]},{"t":12000,"w":["sister","called","last","night","talked","offer"]},{"t":12300,"w":["sister","called","last","night","talked","offer"]},{"t":13000,"w":["said"]},{"t":13300,"w":["said","something"]},{"t":13600,"w":["said","something"]},{"t":13900,"w":["said","something"]},{"t":14200,"w":["said","something"]},{"t":14500,"w":["said","something","always"]},{"t":14800,"w":["said","something","always","stall"]},{"t":15100,"w":["said","something","always","stall"]},{"t":15400,"w":["said","something","always","stall"]},{"t":15700,"w":["said","something","always","stall"]},{"t":16800,"w":["commute"]},{"t":17100,"w":["commute"]},{"t":17400,"w":["commute"]},{"t":17700,"w":["commute","longer"]},{"t":18000,"w":["commute","longer"]},{"t":18300,"w":["commute","longer","people"]},{"t":18600,"w":["commute","longer","people","survive"]},{"t":19800,"w":["part"]},{"t":20100,"w":["part"]},{"t":20800,"w":["sister"]},{"t":21100,"w":["sister","went"]},{"t":21400,"w":["sister","went","through"]},{"t":21700,"w":["sister","went","through"]},{"t":22000,"w":["sister","went","through","same"]},{"t":22300,"w":["sister","went","through","same"]},{"t":22600,"w":["sister","went","through","same","years"]},{"t":22900,"w":["sister","went","through","same","years","ago"]},{"t":23200,"w":["sister","went","through","same","years","ago"]},{"t":23500,"w":["sister","went","through","same","years","ago"]},{"t":23800,"w":["sister","went","through","same","years","ago","moved"]},{"t":24100,"w":["sister","went","through","same","years","ago","moved"]},{"t":24740,"w":["keep"]},{"t":25040,"w":["keep","coming"]},{"t":25340,"w":["keep","coming"]},{"t":25640,"w":["keep","coming"]},{"t":25940,"w":["keep","coming"]},{"t":26240,"w":["keep","coming"]},{"t":26540,"w":["keep","coming","sister"]},{"t":26840,"w":["keep","coming","sister","said"]},{"t":27140,"w":["keep","coming","sister","said"]},{"t":28300,"w":["team"]},{"t":28600,"w":["team","seems"]},{"t":28900,"w":["team","seems","good"]},{"t":29200,"w":["team","seems","good"]},{"t":29500,"w":["team","seems","good","manager"]},{"t":29800,"w":["team","seems","good","manager","seems"]},{"t":30100,"w":["team","seems","good","manager","seems","good"]},{"t":30400,"w":["team","seems","good","manager","seems","good"]},{"t":30700,"w":["team","seems","good","manager","seems","good"]},{"t":31000,"w":["team","seems","good","manager","seems","good","work"]},{"t":31300,"w":["team","seems","good","manager","seems","good","work","seems"]},{"t":32000,"w":["this"]},{"t":32300,"w":["this"]},{"t":32600,"w":["this"]},{"t":32900,"w":["this"]},{"t":33200,"w":["this"]},{"t":33500,"w":["this","job"]},{"t":33800,"w":["this","job"]},{"t":34100,"w":["this","job"]},{"t":34400,"w":["this","job"]},{"t":34700,"w":["this","job"]},{"t":35000,"w":["this","job"]},{"t":35300,"w":["this","job"]},{"t":35600,"w":["this","job","sister"]},{"t":35900,"w":["this","job","sister"]},{"t":36200,"w":["this","job","sister"]},{"t":37100,"w":["took"]},{"t":37400,"w":["took"]},{"t":37700,"w":["took","offer"]},{"t":38000,"w":["took","offer"]},{"t":38300,"w":["took","offer","week"]},{"t":38600,"w":["took","offer","week"]},{"t":38900,"w":["took","offer","week","never"]},{"t":40400,"w":["comparing"]},{"t":40700,"w":["comparing","myself"]},{"t":41000,"w":["comparing","myself"]},{"t":41300,"w":["comparing","myself"]},{"t":41600,"w":["comparing","myself","sister"]},{"t":41900,"w":["comparing","myself","sister","since"]},{"t":42200,"w":["comparing","myself","sister","since"]},{"t":42500,"w":["comparing","myself","sister","since"]},{"t":43300,"w":["offer"]},{"t":43600,"w":["offer","expires"]},{"t":43900,"w":["offer","expires","Friday"]},{"t":44200,"w":["offer","expires","Friday"]},{"t":44500,"w":["offer","expires","Friday"]},{"t":44800,"w":["offer","expires","Friday"]},{"t":45100,"w":["offer","expires","Friday"]},{"t":45400,"w":["offer","expires","Friday"]},{"t":45700,"w":["offer","expires","Friday","signed"]},{"t":48000,"w":["signing"]},{"t":48300,"w":["signing"]},{"t":48600,"w":["signing"]},{"t":48900,"w":["signing"]},{"t":49200,"w":["signing","calling"]},{"t":49500,"w":["signing","calling"]},{"t":49800,"w":["signing","calling","sister"]},{"t":51600,"w":["pattern"]},{"t":51900,"w":["pattern"]},{"t":52200,"w":["pattern","cannot"]},{"t":52500,"w":["pattern","cannot","decide"]},{"t":52800,"w":["pattern","cannot","decide","anything"]},{"t":53100,"w":["pattern","cannot","decide","anything"]},{"t":53400,"w":["pattern","cannot","decide","anything","without"]},{"t":53700,"w":["pattern","cannot","decide","anything","without"]},{"t":54700,"w":["job"]},{"t":55000,"w":["job"]},{"t":55300,"w":["job","fine"]},{"t":55600,"w":["job","fine"]},{"t":55900,"w":["job","fine","offer"]},{"t":56200,"w":["job","fine","offer"]},{"t":56500,"w":["job","fine","offer","fine"]},{"t":56800,"w":["job","fine","offer","fine"]},{"t":57100,"w":["job","fine","offer","fine","salary"]},{"t":57400,"w":["job","fine","offer","fine","salary"]},{"t":57700,"w":["job","fine","offer","fine","salary","fine"]},{"t":58000,"w":["job","fine","offer","fine","salary","fine"]},{"t":58300,"w":["job","fine","offer","fine","salary","fine"]},{"t":58600,"w":["job","fine","offer","fine","salary","fine","never"]},{"t":58900,"w":["job","fine","offer","fine","salary","fine","never"]},{"t":59200,"w":["job","fine","offer","fine","salary","fine","never"]},{"t":59500,"w":["job","fine","offer","fine","salary","fine","never","offer"]},{"t":59800,"w":["job","fine","offer","fine","salary","fine","never","offer"]},{"t":60100,"w":["job","fine","offer","fine","salary","fine","never","offer"]},{"t":60400,"w":["job","fine","offer","fine","salary","fine","never","offer"]},{"t":60700,"w":["job","fine","offer","fine","salary","fine","never","offer"]}],"labels":{"c1":"offer letter","c2":"staring at it","c3":"salary","c4":"stall when things get real","c5":"commute","c6":"sister's advice","c7":"the brave one","c8":"comparing myself","c9":"her blessing"},"calls":[{"t":4540,"ms":2438},{"t":8700,"ms":2571},{"t":12400,"ms":2659},{"t":15900,"ms":2613},{"t":18900,"ms":3001},{"t":20200,"ms":3326},{"t":24140,"ms":2556},{"t":27400,"ms":2593},{"t":31400,"ms":3218},{"t":36500,"ms":3450},{"t":39200,"ms":2338},{"t":42700,"ms":2812},{"t":45900,"ms":2629},{"t":50100,"ms":3644},{"t":53800,"ms":3741},{"t":60800,"ms":3089}],"segments":[{"t":4540,"s":0,"text":"So I got the offer letter yesterday and I keep staring at it instead of signing it."},{"t":8700,"s":4540,"text":"The salary is fine, honestly the salary was never the problem here."},{"t":12400,"s":8700,"text":"My sister called last night and we talked about the offer for an hour."},{"t":15900,"s":12400,"text":"She said something about how I always stall when things get real."},{"t":18900,"s":15900,"text":"The commute would be longer but people survive commutes."},{"t":20200,"s":18900,"text":"That part is fine."},{"t":24140,"s":20200,"text":"My sister went through the same thing two years ago when she moved to Denver."},{"t":27400,"s":24140,"text":"I keep coming back to what my sister said about stalling."},{"t":31400,"s":27400,"text":"The team seems good, the manager seems good, the work seems fine."},{"t":36500,"s":31400,"text":"Maybe this is not about the job at all, maybe it is about my sister being the brave one."},{"t":39200,"s":36500,"text":"She took her offer in a week and never looked back."},{"t":42700,"s":39200,"text":"I have been comparing myself to my sister since we were kids."},{"t":45900,"s":42700,"text":"The offer expires Friday and I still have not signed it."},{"t":50100,"s":45900,"text":"Every time I think about signing I think about calling my sister first."},{"t":53800,"s":50100,"text":"That is the pattern, I cannot decide anything without her blessing."},{"t":60800,"s":53800,"text":"The job is fine, the offer is fine, the salary is fine, it was never about the offer, it was about my sister."}],"pending":[{"t":300,"text":"So"},{"t":600,"text":"So I"},{"t":900,"text":"So I got"},{"t":1200,"text":"So I got the"},{"t":1500,"text":"So I got the offer"},{"t":1800,"text":"So I got the offer letter"},{"t":2100,"text":"So I got the offer letter yesterday"},{"t":2400,"text":"So I got the offer letter yesterday and"},{"t":2700,"text":"So I got the offer letter yesterday and I keep"},{"t":3000,"text":"So I got the offer letter yesterday and I keep staring"},{"t":3300,"text":"So I got the offer letter yesterday and I keep staring at"},{"t":3600,"text":"So I got the offer letter yesterday and I keep staring at it"},{"t":3900,"text":"So I got the offer letter yesterday and I keep staring at it instead"},{"t":4200,"text":"So I got the offer letter yesterday and I keep staring at it instead of"},{"t":4500,"text":"So I got the offer letter yesterday and I keep staring at it instead of signing"},{"t":4840,"text":"The"},{"t":5140,"text":"The"},{"t":5440,"text":"The salary"},{"t":5740,"text":"The salary is"},{"t":6040,"text":"The salary is fine,"},{"t":6340,"text":"The salary is fine, honestly"},{"t":6640,"text":"The salary is fine, honestly the"},{"t":6940,"text":"The salary is fine, honestly the"},{"t":7240,"text":"The salary is fine, honestly the salary"},{"t":7540,"text":"The salary is fine, honestly the salary was"},{"t":7840,"text":"The salary is fine, honestly the salary was never"},{"t":8140,"text":"The salary is fine, honestly the salary was never the"},{"t":8440,"text":"The salary is fine, honestly the salary was never the problem"},{"t":9000,"text":"My"},{"t":9300,"text":"My sister"},{"t":9600,"text":"My sister called"},{"t":9900,"text":"My sister called last"},{"t":10200,"text":"My sister called last night"},{"t":10500,"text":"My sister called last night and"},{"t":10800,"text":"My sister called last night and we"},{"t":11100,"text":"My sister called last night and we talked about"},{"t":11400,"text":"My sister called last night and we talked about the"},{"t":11700,"text":"My sister called last night and we talked about the offer"},{"t":12000,"text":"My sister called last night and we talked about the offer for"},{"t":12300,"text":"My sister called last night and we talked about the offer for an"},{"t":12700,"text":"She"},{"t":13000,"text":"She said"},{"t":13300,"text":"She said something"},{"t":13600,"text":"She said something about"},{"t":13900,"text":"She said something about how"},{"t":14200,"text":"She said something about how I"},{"t":14500,"text":"She said something about how I always"},{"t":14800,"text":"She said something about how I always stall"},{"t":15100,"text":"She said something about how I always stall when"},{"t":15400,"text":"She said something about how I always stall when things"},{"t":15700,"text":"She said something about how I always stall when things get"},{"t":16200,"text":"The"},{"t":16500,"text":"The"},{"t":16800,"text":"The commute"},{"t":17100,"text":"The commute would"},{"t":17400,"text":"The commute would be"},{"t":17700,"text":"The commute would be longer"},{"t":18000,"text":"The commute would be longer but"},{"t":18300,"text":"The commute would be longer but people"},{"t":18600,"text":"The commute would be longer but people survive"},{"t":19200,"text":"That"},{"t":19500,"text":"That"},{"t":19800,"text":"That part"},{"t":20100,"text":"That part is"},{"t":20500,"text":"My"},{"t":20800,"text":"My sister"},{"t":21100,"text":"My sister went"},{"t":21400,"text":"My sister went through"},{"t":21700,"text":"My sister went through the"},{"t":22000,"text":"My sister went through the same"},{"t":22300,"text":"My sister went through the same thing"},{"t":22600,"text":"My sister went through the same thing two years"},{"t":22900,"text":"My sister went through the same thing two years ago"},{"t":23200,"text":"My sister went through the same thing two years ago when"},{"t":23500,"text":"My sister went through the same thing two years ago when she"},{"t":23800,"text":"My sister went through the same thing two years ago when she moved"},{"t":24100,"text":"My sister went through the same thing two years ago when she moved to"},{"t":24440,"text":"I"},{"t":24740,"text":"I keep"},{"t":25040,"text":"I keep coming"},{"t":25340,"text":"I keep coming back"},{"t":25640,"text":"I keep coming back to"},{"t":25940,"text":"I keep coming back to what"},{"t":26240,"text":"I keep coming back to what my"},{"t":26540,"text":"I keep coming back to what my sister"},{"t":26840,"text":"I keep coming back to what my sister said"},{"t":27140,"text":"I keep coming back to what my sister said about"},{"t":27700,"text":"The"},{"t":28000,"text":"The"},{"t":28300,"text":"The team"},{"t":28600,"text":"The team seems"},{"t":28900,"text":"The team seems good,"},{"t":29200,"text":"The team seems good, the"},{"t":29500,"text":"The team seems good, the manager"},{"t":29800,"text":"The team seems good, the manager seems"},{"t":30100,"text":"The team seems good, the manager seems good,"},{"t":30400,"text":"The team seems good, the manager seems good, the"},{"t":30700,"text":"The team seems good, the manager seems good, the"},{"t":31000,"text":"The team seems good, the manager seems good, the work"},{"t":31300,"text":"The team seems good, the manager seems good, the work seems"},{"t":31700,"text":"Maybe"},{"t":32000,"text":"Maybe this"},{"t":32300,"text":"Maybe this is"},{"t":32600,"text":"Maybe this is not"},{"t":32900,"text":"Maybe this is not about"},{"t":33200,"text":"Maybe this is not about the"},{"t":33500,"text":"Maybe this is not about the job"},{"t":33800,"text":"Maybe this is not about the job at"},{"t":34100,"text":"Maybe this is not about the job at all, maybe"},{"t":34400,"text":"Maybe this is not about the job at all, maybe it"},{"t":34700,"text":"Maybe this is not about the job at all, maybe it is"},{"t":35000,"text":"Maybe this is not about the job at all, maybe it is about"},{"t":35300,"text":"Maybe this is not about the job at all, maybe it is about my"},{"t":35600,"text":"Maybe this is not about the job at all, maybe it is about my sister"},{"t":35900,"text":"Maybe this is not about the job at all, maybe it is about my sister being"},{"t":36200,"text":"Maybe this is not about the job at all, maybe it is about my sister being the"},{"t":36800,"text":"She"},{"t":37100,"text":"She took"},{"t":37400,"text":"She took her"},{"t":37700,"text":"She took her offer"},{"t":38000,"text":"She took her offer in a"},{"t":38300,"text":"She took her offer in a week"},{"t":38600,"text":"She took her offer in a week and"},{"t":38900,"text":"She took her offer in a week and never"},{"t":39500,"text":"I"},{"t":39800,"text":"I have"},{"t":40100,"text":"I have been"},{"t":40400,"text":"I have been comparing"},{"t":40700,"text":"I have been comparing myself"},{"t":41000,"text":"I have been comparing myself to"},{"t":41300,"text":"I have been comparing myself to my"},{"t":41600,"text":"I have been comparing myself to my sister"},{"t":41900,"text":"I have been comparing myself to my sister since"},{"t":42200,"text":"I have been comparing myself to my sister since we"},{"t":42500,"text":"I have been comparing myself to my sister since we were"},{"t":43000,"text":"The"},{"t":43300,"text":"The offer"},{"t":43600,"text":"The offer expires"},{"t":43900,"text":"The offer expires Friday"},{"t":44200,"text":"The offer expires Friday and"},{"t":44500,"text":"The offer expires Friday and I"},{"t":44800,"text":"The offer expires Friday and I still"},{"t":45100,"text":"The offer expires Friday and I still have"},{"t":45400,"text":"The offer expires Friday and I still have not"},{"t":45700,"text":"The offer expires Friday and I still have not signed"},{"t":46200,"text":"Every"},{"t":46500,"text":"Every"},{"t":46800,"text":"Every time"},{"t":47100,"text":"Every time I"},{"t":47400,"text":"Every time I think"},{"t":47700,"text":"Every time I think about"},{"t":48000,"text":"Every time I think about signing"},{"t":48300,"text":"Every time I think about signing I"},{"t":48600,"text":"Every time I think about signing I think"},{"t":48900,"text":"Every time I think about signing I think about"},{"t":49200,"text":"Every time I think about signing I think about calling"},{"t":49500,"text":"Every time I think about signing I think about calling my"},{"t":49800,"text":"Every time I think about signing I think about calling my sister"},{"t":50400,"text":"That"},{"t":50700,"text":"That"},{"t":51000,"text":"That is"},{"t":51300,"text":"That is the"},{"t":51600,"text":"That is the pattern,"},{"t":51900,"text":"That is the pattern, I"},{"t":52200,"text":"That is the pattern, I cannot"},{"t":52500,"text":"That is the pattern, I cannot decide"},{"t":52800,"text":"That is the pattern, I cannot decide anything"},{"t":53100,"text":"That is the pattern, I cannot decide anything"},{"t":53400,"text":"That is the pattern, I cannot decide anything without"},{"t":53700,"text":"That is the pattern, I cannot decide anything without her"},{"t":54100,"text":"The"},{"t":54400,"text":"The"},{"t":54700,"text":"The job"},{"t":55000,"text":"The job is"},{"t":55300,"text":"The job is fine,"},{"t":55600,"text":"The job is fine, the"},{"t":55900,"text":"The job is fine, the offer"},{"t":56200,"text":"The job is fine, the offer is"},{"t":56500,"text":"The job is fine, the offer is fine,"},{"t":56800,"text":"The job is fine, the offer is fine, the"},{"t":57100,"text":"The job is fine, the offer is fine, the salary"},{"t":57400,"text":"The job is fine, the offer is fine, the salary is"},{"t":57700,"text":"The job is fine, the offer is fine, the salary is fine,"},{"t":58000,"text":"The job is fine, the offer is fine, the salary is fine, it"},{"t":58300,"text":"The job is fine, the offer is fine, the salary is fine, it was"},{"t":58600,"text":"The job is fine, the offer is fine, the salary is fine, it was never"},{"t":58900,"text":"The job is fine, the offer is fine, the salary is fine, it was never about"},{"t":59200,"text":"The job is fine, the offer is fine, the salary is fine, it was never about the"},{"t":59500,"text":"The job is fine, the offer is fine, the salary is fine, it was never about the offer,"},{"t":59800,"text":"The job is fine, the offer is fine, the salary is fine, it was never about the offer, it"},{"t":60100,"text":"The job is fine, the offer is fine, the salary is fine, it was never about the offer, it was"},{"t":60400,"text":"The job is fine, the offer is fine, the salary is fine, it was never about the offer, it was about"},{"t":60700,"text":"The job is fine, the offer is fine, the salary is fine, it was never about the offer, it was about my"}]};
+
+const $ = (id) => document.getElementById(id);
+const screen = $('screen'), field = $('field'), heardEl = $('heard'), stateEl = $('state'), clockEl = $('clock');
+const big = $('big'), hint = $('hint'), sheet = $('sheet'), scrim = $('scrim'), grab = $('grab'), tabs = $('tabs');
+const transcriptEl = $('transcript'), svg = $('chartsvg'), surfacedBox = $('surfacedbox'), contextEl = $('context');
+const speedBtns = [...document.querySelectorAll('.speed button')];
+const fmt = (t) => { const s = Math.floor(t / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+// ---------- the sheet: three detents
+const DETENTS = { peek: () => sheet.clientHeight - 62, medium: () => Math.round(sheet.clientHeight * 0.5), large: () => Math.round(sheet.clientHeight * 0.09) };
+let detent = 'peek';
+function setDetent(d) {
+  detent = d;
+  sheet.dataset.detent = d;
+  sheet.style.transform = `translateY(${DETENTS[d]()}px)`;
+  scrim.classList.toggle('on', d === 'large');
+  fitBody(DETENTS[d]());
+}
+/** The sheet is full-height and translated; give the body exactly the visible height so panes fit at every detent. */
+function fitBody(translateY) {
+  const header = grab.offsetHeight + tabs.offsetHeight;
+  sheet.querySelector('.body').style.height = `${Math.max(0, sheet.clientHeight - translateY - header)}px`;
+}
+function showTab(name) {
+  tabs.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  sheet.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.dataset.pane === name));
+  if (name === 'transcript') transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+tabs.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  showTab(b.dataset.tab);
+  if (detent === 'peek') setDetent('medium');
+});
+let sdrag = null;
+const onDown = (e) => { sdrag = { y: e.clientY, start: DETENTS[detent](), moved: false, id: e.pointerId, t0: performance.now(), y0: e.clientY }; sheet.classList.add('dragging'); e.currentTarget.setPointerCapture(e.pointerId); };
+const onMove = (e) => {
+  if (!sdrag) return;
+  const dy = e.clientY - sdrag.y;
+  if (Math.abs(dy) > 4) sdrag.moved = true;
+  const y = Math.max(DETENTS.large(), Math.min(DETENTS.peek(), sdrag.start + dy));
+  sheet.style.transform = `translateY(${y}px)`;
+  fitBody(y);
+};
+const onUp = (e) => {
+  if (!sdrag) return;
+  const d = sdrag; sdrag = null; sheet.classList.remove('dragging');
+  const y = DETENTS[detent]() + (e.clientY - d.y);
+  const v = (e.clientY - d.y0) / Math.max(1, performance.now() - d.t0); // px per ms
+  if (!d.moved) { setDetent(detent === 'peek' ? 'medium' : detent === 'medium' ? 'large' : 'peek'); return; }
+  if (v < -0.6) { setDetent(detent === 'peek' ? 'medium' : 'large'); return; }
+  if (v > 0.6) { setDetent(detent === 'large' ? 'medium' : 'peek'); return; }
+  const best = Object.keys(DETENTS).reduce((a, b) => Math.abs(DETENTS[b]() - y) < Math.abs(DETENTS[a]() - y) ? b : a);
+  setDetent(best);
+};
+for (const el of [grab, tabs]) { el.addEventListener('pointerdown', onDown); el.addEventListener('pointermove', onMove); el.addEventListener('pointerup', onUp); el.addEventListener('pointercancel', onUp); }
+scrim.addEventListener('click', () => setDetent('medium'));
+window.addEventListener('resize', () => setDetent(detent));
+
+// ---------- stable positions: sunflower spiral, one slot per concept in order of first appearance
+const slots = new Map();
+function slotFor(id) { if (!slots.has(id)) slots.set(id, slots.size); return slots.get(id); }
+function positionFor(id, el) {
+  const n = slotFor(id);
+  const w = field.clientWidth, h = field.clientHeight;
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const r = Math.sqrt((n + 0.6) / 9);
+  const a = n * golden + 0.9;
+  let x = (0.5 + 0.34 * Math.min(r, 1) * Math.cos(a)) * w;
+  let y = (0.5 + 0.38 * Math.min(r, 1) * Math.sin(a)) * h;
+  const half = el ? Math.min(w * 0.45, el.getBoundingClientRect().width / 2 + 8) : 60;
+  x = Math.max(half + 10, Math.min(w - half - 10, x));
+  y = Math.max(28, Math.min(h - 28, y));
+  return { x, y };
+}
+
+// ---------- playback state
+let playing = false, surfaced = false, t = 0, lastWall = 0, speed = 1;
+let ri = -1, hi = 0;
+const live = new Map();
+const history = new Map();
+let prevIds = new Set();
+let seeds = [];
+let litId = null;
+
+function clearField() { live.clear(); history.clear(); prevIds = new Set(); field.innerHTML = ''; heardEl.innerHTML = ''; ri = -1; hi = 0; }
+function reset() {
+  playing = false; surfaced = false; t = 0;
+  clearField(); slots.clear();
+  screen.classList.remove('listening', 'slack');
+  stateEl.textContent = 'ready'; clockEl.textContent = '0:00';
+  big.setAttribute('aria-label', 'Drop'); screen.classList.remove('surfaced');
+  hint.textContent = 'tap to drop a sounding';
+  closeCard(); surfacedBox.classList.remove('on'); surfacedBox.innerHTML = '';
+  buildTranscript(); renderTranscript(0); renderHead(0);
+  showGhosts();
+}
+function showGhosts() {
+  for (const id of seeds) {
+    if (live.has(id)) continue;
+    const el = document.createElement('p');
+    el.className = 'mark ghost'; el.textContent = DATA.labels[id]; el.dataset.id = id; el.style.fontSize = '17px';
+    field.appendChild(el);
+    const { x, y } = positionFor(id, el); el.style.left = `${x}px`; el.style.top = `${y}px`;
+    live.set(id, el);
+  }
+}
+function drop() {
+  const keep = seeds.slice();
+  reset(); seeds = keep; showGhosts();
+  playing = true; lastWall = performance.now();
+  screen.classList.add('listening');
+  stateEl.textContent = 'listening'; big.setAttribute('aria-label', 'Surface'); hint.textContent = '';
+  if (detent !== 'peek') setDetent('peek');
+  showTab('transcript');
+  requestAnimationFrame(frame);
+}
+
+function applyReading(r) {
+  const ids = new Set(r.m.map((m) => m.id));
+  const displacedBy = new Map(); const absorbed = new Set();
+  for (const tr of r.tr) { if (tr.k === 'displaced') displacedBy.set(tr.id, tr.by); if (tr.k === 'merged') absorbed.add(tr.from); }
+  for (const id of prevIds) {
+    if (ids.has(id)) continue;
+    const el = live.get(id); if (!el) continue;
+    live.delete(id);
+    const by = displacedBy.get(id);
+    if (by) { note(id, r.t, `displaced by ${DATA.labels[by] ?? by}`); el.classList.add('sink'); el.style.transform = 'translate(-50%, 60%)'; }
+    else { note(id, r.t, absorbed.has(id) ? 'absorbed into another mark' : 'faded'); el.classList.add('absorbed'); }
+    setTimeout(() => el.remove(), field.classList.contains('instant') ? 0 : 1900);
+  }
+  for (const m of r.m) {
+    let el = live.get(m.id);
+    const size = Math.round(15 + Math.min(0.5, m.p) * 62);
+    const wght = Math.round(320 + Math.min(0.5, m.p) * 760);
+    const wasGhost = el && el.classList.contains('ghost');
+    const fresh = !el || wasGhost;
+    if (!el) {
+      el = document.createElement('p');
+      el.className = 'mark arrive'; el.textContent = m.l; el.tabIndex = 0; el.dataset.id = m.id;
+      el.addEventListener('click', () => follow(m.id));
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter') follow(m.id); });
+      field.appendChild(el); live.set(m.id, el);
+    } else if (wasGhost) {
+      el.classList.remove('ghost'); el.classList.add('arrive'); el.textContent = m.l; el.tabIndex = 0;
+      el.addEventListener('click', () => follow(m.id));
+      note(m.id, r.t, 'confirmed: you reached what you brought');
+    }
+    if (fresh) {
+      if (!wasGhost) note(m.id, r.t, r.tr.some((tr) => tr.k === 'displaced' && tr.by === m.id) ? 'arrived, displacing ' + DATA.labels[r.tr.find((tr) => tr.by === m.id).id] : 'appeared');
+      setTimeout(() => el.classList.remove('arrive'), 2700);
+    }
+    el.style.fontSize = `${size}px`;
+    el.style.fontVariationSettings = `"opsz" 144, "wght" ${wght}, "SOFT" 60`;
+    el.style.opacity = String(0.55 + Math.min(0.45, m.p));
+    el.style.zIndex = String(Math.round(m.p * 100));
+    if (fresh) el.style.transition = 'none';
+    const { x, y } = positionFor(m.id, el);
+    el.style.left = `${x}px`; el.style.top = `${y}px`;
+    if (fresh) { void el.offsetWidth; el.style.transition = ''; }
+    el.classList.toggle('lit', m.id === litId);
+  }
+  prevIds = ids;
+  field.classList.toggle('slack', r.s);
+  screen.classList.toggle('slack', r.s && playing);
+  if (playing) stateEl.textContent = r.s ? 'slack' : 'listening';
+}
+function note(id, at, text) { if (!history.has(id)) history.set(id, []); history.get(id).push({ t: at, text }); }
+function flash(words) {
+  const w = heardEl.clientWidth, h = heardEl.clientHeight;
+  words.forEach((word, i) => setTimeout(() => {
+    const el = document.createElement('span');
+    el.className = 'word'; el.textContent = word;
+    el.style.left = `${w * (0.2 + Math.random() * 0.6)}px`;
+    el.style.top = `${h * (0.55 + Math.random() * 0.3)}px`;
+    el.style.fontSize = `${34 + Math.random() * 14}px`;
+    heardEl.appendChild(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('gone')));
+    setTimeout(() => el.remove(), 1700);
+  }, i * 140));
+}
+function advanceTo(now, animate) {
+  while (ri + 1 < DATA.readings.length && DATA.readings[ri + 1].t <= now) { ri += 1; applyReading(DATA.readings[ri]); }
+  while (hi < DATA.heard.length && DATA.heard[hi].t <= now) { if (animate) flash(DATA.heard[hi].w); hi += 1; }
+  renderTranscript(now); renderHead(now); clockEl.textContent = fmt(now);
+}
+function frame(now) {
+  if (!playing) return;
+  t = Math.min(t + (now - lastWall) * speed, DATA.endT);
+  lastWall = now;
+  advanceTo(t, true);
+  if (t >= DATA.endT) { surface(); return; }
+  requestAnimationFrame(frame);
+}
+/** Jump to any moment: rebuild the board without animation (chart scrubber). */
+function seek(to) {
+  const wasPlaying = playing;
+  playing = false;
+  const keep = seeds.slice();
+  clearField(); seeds = keep;
+  field.classList.add('instant');
+  t = Math.max(0, Math.min(DATA.endT, to));
+  advanceTo(t, false);
+  void field.offsetWidth; field.classList.remove('instant');
+  if (t > 0) { screen.classList.add('listening'); screen.classList.remove('surfaced'); big.setAttribute('aria-label', 'Surface'); hint.textContent = ''; }
+  stateEl.textContent = wasPlaying ? 'listening' : 'paused';
+  surfaced = false; surfacedBox.classList.remove('on');
+  if (wasPlaying) { lastWall = performance.now(); playing = true; requestAnimationFrame(frame); }
+}
+function surface() {
+  playing = false; surfaced = true;
+  screen.classList.remove('listening', 'slack');
+  stateEl.textContent = 'surfaced'; screen.classList.add('surfaced'); big.setAttribute('aria-label', 'Drop again'); hint.textContent = 'surfaced · tap to drop again';
+  closeCard();
+  const r = DATA.readings[Math.max(0, ri)];
+  const top = Math.max(...r.m.map((m) => m.p));
+  surfacedBox.innerHTML = `<h3>What you kept coming back to <small style="font-size:12px;color:var(--chrome);font-family:'IBM Plex Mono',monospace;letter-spacing:.08em">· ${fmt(t)}</small></h3>
+    <ol>${r.m.map((m) => `<li><span class="lbl">${m.l}</span><span class="pct">${Math.round(m.p * 100)}%</span><span class="bar"><i style="width:${(m.p / top) * 100}%"></i></span></li>`).join('')}</ol>`;
+  surfacedBox.classList.add('on');
+  showTab('chart'); setDetent('medium');
+}
+
+// ---------- follow: a tap on a mark means "more of this". It lights the mark and its lane so you can watch it, and (in the product) tells the interpreter what you want to drill into.
+function follow(id) {
+  litId = litId === id ? null : id;
+  paintLit();
+  hint.innerHTML = litId ? `following <b>${DATA.labels[litId]}</b> · tap again to let go` : '';
+}
+function closeCard() { /* no card any more; kept so surface()/reset() stay simple */ }
+
+// ---------- transcript
+function buildTranscript() {
+  transcriptEl.innerHTML = '';
+  let lastStamp = -1;
+  DATA.segments.forEach((s) => {
+    const half = Math.floor(s.s / 30000);
+    if (half !== lastStamp) { const st = document.createElement('span'); st.className = 'stamp seg future'; st.dataset.t = s.s; st.textContent = fmt(half * 30000); transcriptEl.appendChild(st); lastStamp = half; }
+    const el = document.createElement('span'); el.className = 'seg future'; el.dataset.t = s.t; el.textContent = s.text + ' ';
+    transcriptEl.appendChild(el);
+  });
+  const pend = document.createElement('span'); pend.className = 'pend'; pend.id = 'pend'; transcriptEl.appendChild(pend);
+  const caret = document.createElement('span'); caret.className = 'caret'; transcriptEl.appendChild(caret);
+  const empty = document.createElement('div'); empty.className = 'empty'; empty.id = 'tempty'; empty.textContent = 'Nothing yet. Drop, and what you say appears here as it is heard.'; transcriptEl.prepend(empty);
+}
+function renderTranscript(now) {
+  let any = false;
+  for (const el of transcriptEl.querySelectorAll('.seg')) { const on = Number(el.dataset.t) <= now; el.classList.toggle('future', !on); any = any || on; }
+  const lastSeg = DATA.segments.filter((s) => s.t <= now).at(-1);
+  const since = lastSeg ? lastSeg.t : 0;
+  const tail = DATA.pending.filter((p) => p.t > since && p.t <= now).map((p) => p.text).join(' ');
+  $('pend').textContent = tail ? tail + ' ' : '';
+  $('tempty').hidden = any || tail.length > 0;
+  if (playing) transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+// ---------- chart: one lane per concept, ordered by first appearance
+const W = 390, H = 560, L = 118, R = 16, TOP = 8, AX = 22;
+const order = []; const firstT = new Map();
+for (const r of DATA.readings) for (const m of r.m) if (!firstT.has(m.id)) { firstT.set(m.id, r.t); order.push(m.id); }
+const laneH = Math.min(30, (H - TOP - AX) / Math.max(1, order.length));
+const xOf = (ms) => L + (ms / DATA.endT) * (W - L - R);
+function series(id) {
+  const pts = []; let cur = 0;
+  for (const r of DATA.readings) { const m = r.m.find((x) => x.id === id); const p = m ? m.p : 0; if (p !== cur) { pts.push([r.t, cur]); pts.push([r.t, p]); cur = p; } else if (!pts.length) pts.push([r.t, 0]); }
+  pts.push([DATA.endT, cur]);
+  return pts;
+}
+function buildChart() {
+  const ns = 'http://www.w3.org/2000/svg';
+  svg.innerHTML = '';
+  order.forEach((id, i) => {
+    const y0 = TOP + i * laneH + laneH - 2;
+    const pts = series(id); const maxH = laneH * 0.9;
+    const d = 'M' + xOf(pts[0][0]) + ',' + y0 + ' ' + pts.map(([ms, p]) => 'L' + xOf(ms).toFixed(1) + ',' + (y0 - Math.min(0.5, p) * 2 * maxH).toFixed(1)).join(' ') + ' L' + xOf(DATA.endT) + ',' + y0 + ' Z';
+    const path = document.createElementNS(ns, 'path'); path.setAttribute('d', d); path.setAttribute('class', 'area'); path.dataset.id = id; svg.appendChild(path);
+    const base = document.createElementNS(ns, 'line'); base.setAttribute('x1', L); base.setAttribute('x2', W - R); base.setAttribute('y1', y0 + 0.5); base.setAttribute('y2', y0 + 0.5); base.setAttribute('class', 'base'); svg.appendChild(base);
+    const label = document.createElementNS(ns, 'text'); label.setAttribute('x', L - 8); label.setAttribute('y', y0 - 4); label.setAttribute('text-anchor', 'end'); label.setAttribute('class', 'lane-label dim'); label.dataset.id = id;
+    label.textContent = DATA.labels[id].length > 17 ? DATA.labels[id].slice(0, 16) + '…' : DATA.labels[id];
+    label.addEventListener('pointerdown', (e) => e.stopPropagation());
+    label.addEventListener('click', (e) => { e.stopPropagation(); follow(id); });
+    svg.appendChild(label);
+  });
+  const axis = document.createElementNS(ns, 'g'); axis.setAttribute('class', 'axis');
+  for (let ms = 0; ms <= DATA.endT; ms += 30000) {
+    const x = xOf(ms);
+    const l = document.createElementNS(ns, 'line'); l.setAttribute('x1', x); l.setAttribute('x2', x); l.setAttribute('y1', TOP); l.setAttribute('y2', H - AX + 4); axis.appendChild(l);
+    const tx = document.createElementNS(ns, 'text'); tx.setAttribute('x', x); tx.setAttribute('y', H - 6); tx.setAttribute('text-anchor', 'middle'); tx.textContent = fmt(ms); axis.appendChild(tx);
+  }
+  svg.appendChild(axis);
+  const head = document.createElementNS(ns, 'line'); head.setAttribute('id', 'head'); head.setAttribute('class', 'head'); head.setAttribute('y1', TOP); head.setAttribute('y2', H - AX + 4); svg.appendChild(head);
+  const ht = document.createElementNS(ns, 'text'); ht.setAttribute('id', 'headtime'); ht.setAttribute('class', 'head-time'); ht.setAttribute('y', TOP + 10); svg.appendChild(ht);
+  renderHead(0);
+}
+function paintLit() {
+  svg.querySelectorAll('.area').forEach((p) => p.classList.toggle('lit', p.dataset.id === litId));
+  for (const [id, el] of live) el.classList.toggle('lit', id === litId);
+}
+function renderHead(now) {
+  const x = xOf(now);
+  const head = $('head'); if (!head) return;
+  head.setAttribute('x1', x); head.setAttribute('x2', x);
+  const ht = $('headtime'); ht.setAttribute('x', x + (x > W - 60 ? -6 : 6)); ht.setAttribute('text-anchor', x > W - 60 ? 'end' : 'start'); ht.textContent = fmt(now);
+  svg.querySelectorAll('.lane-label').forEach((l) => l.classList.toggle('dim', firstT.get(l.dataset.id) > now));
+}
+let scrubbing = false;
+const msAt = (e) => { const b = svg.getBoundingClientRect(); const x = ((e.clientX - b.left) / b.width) * W; return Math.max(0, Math.min(DATA.endT, ((x - L) / (W - L - R)) * DATA.endT)); };
+svg.addEventListener('pointerdown', (e) => { scrubbing = true; svg.setPointerCapture(e.pointerId); seek(msAt(e)); });
+svg.addEventListener('pointermove', (e) => { if (scrubbing) seek(msAt(e)); });
+svg.addEventListener('pointerup', () => { scrubbing = false; });
+svg.addEventListener('pointercancel', () => { scrubbing = false; });
+
+// ---------- context
+function buildContext() {
+  contextEl.innerHTML = `
+    <h3>What are you circling already?</h3>
+    <textarea id="ctxtext" placeholder="A question, a few notes, a name…">Should we start our investment from the ground up, or keep picking tech companies? Ray Dalio's cycles, the US market.</textarea>
+    <div class="chips"><button class="chip" data-ctx="A question I keep coming back to">a question</button><button class="chip" data-ctx="Notes from last time: research more, best strategy">notes from last time</button><button class="chip" data-ctx="A previous sounding: China rising, cycle of the economy">a previous sounding</button></div>
+    <p class="note">Context seeds faint marks on the board. They stay faint until your talking actually reaches them, then they become real. Nothing you bring counts as something you said.</p>
+    <div class="row"><button class="act" id="ctxadd">Seed the board</button><button class="act quiet" id="ctxclear">Clear</button></div>`;
+  contextEl.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => { const ta = $('ctxtext'); ta.value = (ta.value.trim() ? ta.value.trim() + ' ' : '') + c.dataset.ctx + '.'; }));
+  $('ctxadd').addEventListener('click', () => {
+    const text = $('ctxtext').value.toLowerCase();
+    seeds = Object.entries(DATA.labels).filter(([, l]) => text.includes(l.toLowerCase()) || l.toLowerCase().split(' ').some((w) => w.length > 4 && text.includes(w))).map(([id]) => id).slice(0, 5);
+    for (const el of field.querySelectorAll('.ghost')) { live.delete(el.dataset.id); el.remove(); }
+    showGhosts();
+    if (!playing && !surfaced) hint.textContent = seeds.length ? `${seeds.length} seeded · tap to drop a sounding` : 'tap to drop a sounding';
+    setDetent('peek');
+  });
+  $('ctxclear').addEventListener('click', () => { $('ctxtext').value = ''; seeds = []; for (const el of field.querySelectorAll('.ghost')) { live.delete(el.dataset.id); el.remove(); } if (!playing && !surfaced) hint.textContent = 'tap to drop a sounding'; });
+}
+
+// ---------- wiring
+big.addEventListener('click', () => { if (!playing && !surfaced && t === 0) drop(); else if (playing) surface(); else if (surfaced) drop(); else { playing = true; lastWall = performance.now(); stateEl.textContent = 'listening'; requestAnimationFrame(frame); } });
+speedBtns.forEach((b) => b.addEventListener('click', () => { speed = Number(b.dataset.speed); speedBtns.forEach((x) => x.setAttribute('aria-pressed', String(x === b))); }));
+clockEl.addEventListener('click', () => {
+  if (surfaced) return;
+  if (playing) { playing = false; stateEl.textContent = 'paused'; }
+  else if (t > 0) { playing = true; lastWall = performance.now(); stateEl.textContent = 'listening'; requestAnimationFrame(frame); }
+});
+window.addEventListener('resize', () => { for (const [id, el] of live) { const { x, y } = positionFor(id, el); el.style.left = `${x}px`; el.style.top = `${y}px`; } });
+
+buildChart(); buildContext(); reset(); setDetent('peek');
+// show the page at rest with a real reading: the board as it stood at 1:00 in, frozen until Drop
+(function preview() {
+  const r = DATA.readings.filter((x) => x.t <= 60000).at(-1);
+  if (!r) return;
+  field.classList.add('instant');
+  applyReading({ ...r, tr: [] });
+  void field.offsetWidth; field.classList.remove('instant');
+  prevIds = new Set(); live.clear();
+  clockEl.textContent = '1:00'; renderHead(60000); renderTranscript(60000);
+  hint.textContent = 'tap to drop a sounding';
+})();
+</script>
