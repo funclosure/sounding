@@ -6,8 +6,8 @@ import type { FixtureScript } from '../fixture'
  * displacement churn before it (Word Cloud for Meeting finding), and the first
  * displacement must land within 30s of the shift.
  * capacity 4 so the shift forces contention rather than slot-filling.
- * halfLifeMs 15s (default 45s) is fixture-local tuning for the 30s bound:
- * at the default half-life the first displacement lands at 36s post-shift
+ * halfLifeMs 15s (default 20s since 2026-09-05) is fixture-local tuning for the 30s bound:
+ * at the default half-life the first displacement lands at 31.5s post-shift (36s at the old 45s default)
  * because the recurrence window keeps phase-1 concepts alive too long; at
  * 15s it lands at 27s. hysteresisMargin was swept 0.005-0.15 and had zero
  * effect on this latency — the crossing is quantized to the two candidate
