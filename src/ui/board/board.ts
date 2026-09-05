@@ -8,6 +8,7 @@ export interface Board {
   clearGhosts(): void
   setLit(id: string | null): void
   reset(): void
+  relayout(): void
   onTap(cb: (id: string) => void): void
 }
 
@@ -36,21 +37,27 @@ export function createBoard(field: HTMLElement): Board {
   function place(id: string, el: HTMLElement) {
     const w = field.clientWidth
     const h = field.clientHeight
-    const half = Math.min(w * 0.45, el.getBoundingClientRect().width / 2 + 8)
+    // Raw half-width, unclamped: `layout.position` is the single place that
+    // clamps it against `w * 0.45` (see layout.ts).
+    const half = el.getBoundingClientRect().width / 2 + 8
     const { x, y } = layout.position(id, { width: w, height: h }, half)
     el.style.left = `${x}px`
     el.style.top = `${y}px`
   }
 
-  function makeMarkEl(id: string): HTMLElement {
-    const el = document.createElement('p')
-    el.className = 'mark'
+  /** Makes `el` tappable/focusable and wires it to `emitTap(id)`. Only real marks get this. */
+  function makeInteractive(el: HTMLElement, id: string) {
     el.tabIndex = 0
-    el.dataset.id = id
     el.addEventListener('click', () => emitTap(id))
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') emitTap(id)
     })
+  }
+
+  function makeMarkEl(id: string): HTMLElement {
+    const el = document.createElement('p')
+    el.className = 'mark'
+    el.dataset.id = id
     return el
   }
 
@@ -58,6 +65,9 @@ export function createBoard(field: HTMLElement): Board {
     seeds = labels
     for (const { id, label } of seeds) {
       if (live.has(id)) continue
+      // Ghosts are inert context seeds: no click/keydown listeners, no
+      // tabIndex. They become interactive only if/when `apply()` promotes
+      // them to a real mark (see the `wasGhost` branch below).
       const el = makeMarkEl(id)
       el.classList.add('ghost')
       el.textContent = label
@@ -114,12 +124,14 @@ export function createBoard(field: HTMLElement): Board {
 
       if (!el) {
         el = makeMarkEl(m.id)
+        makeInteractive(el, m.id)
         if (!instant) el.classList.add('arrive')
         el.textContent = m.label
         field.appendChild(el)
         live.set(m.id, el)
       } else if (wasGhost) {
         el.classList.remove('ghost')
+        makeInteractive(el, m.id)
         if (!instant) el.classList.add('arrive')
         el.textContent = m.label
       }
@@ -167,9 +179,30 @@ export function createBoard(field: HTMLElement): Board {
     seedGhosts(seeds)
   }
 
+  /**
+   * Recompute every live mark's position from the current field box (e.g.
+   * after a viewport resize). Ghosts are repositioned without a transition;
+   * real marks may animate to their new spot. Ported from the prototype's
+   * `resize` handler (docs/design/sounding-phone.template.html).
+   */
+  function relayout() {
+    for (const [id, el] of live) {
+      const isGhost = el.classList.contains('ghost')
+      if (isGhost) {
+        const prevTransition = el.style.transition
+        el.style.transition = 'none'
+        place(id, el)
+        void el.offsetWidth
+        el.style.transition = prevTransition
+      } else {
+        place(id, el)
+      }
+    }
+  }
+
   function onTap(cb: (id: string) => void) {
     tapCbs.push(cb)
   }
 
-  return { apply, seedGhosts, clearGhosts, setLit, reset, onTap }
+  return { apply, seedGhosts, clearGhosts, setLit, reset, relayout, onTap }
 }

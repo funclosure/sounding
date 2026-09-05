@@ -95,7 +95,6 @@
 .transcript { overflow-y: auto; min-height: 0; padding: 4px 22px 28px; font-family: "Fraunces", Georgia, serif; font-variation-settings: "opsz" 18, "wght" 400; font-size: 16.5px; line-height: 1.5; color: var(--ink); scrollbar-width: none; }
 .transcript::-webkit-scrollbar { display: none; }
 .transcript .seg { display: inline; }
-.transcript .seg.future { display: none; }
 .transcript .stamp { display: block; margin: 14px 0 2px; font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: 0.1em; color: var(--chrome-2); }
 .transcript .pend { color: var(--chrome); font-style: italic; }
 .transcript .empty { color: var(--chrome-2); font-family: "IBM Plex Mono", monospace; font-size: 12px; line-height: 1.6; }

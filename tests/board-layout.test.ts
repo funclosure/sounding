@@ -24,6 +24,18 @@ describe('SlotLayout', () => {
     }
   })
 
+  it('clamps a half-width larger than w*0.45 to w*0.45 (the single clamp)', () => {
+    const layout = new SlotLayout()
+    const box = { width: 400, height: 600 }
+    // half-width 500 exceeds w*0.45 (180); position() must clamp it there
+    // itself — board.ts now passes the raw, unclamped half-width.
+    const half = 500
+    const clamped = box.width * 0.45
+    const { x } = layout.position('a', box, half)
+    expect(x).toBeGreaterThanOrEqual(clamped + 10)
+    expect(x).toBeLessThanOrEqual(box.width - clamped - 10)
+  })
+
   it('reset() clears slots so ids are reassigned from 0', () => {
     const layout = new SlotLayout()
     layout.slotFor('a')
