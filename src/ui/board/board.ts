@@ -1,4 +1,5 @@
-import { SlotLayout } from './layout'
+import { SlotLayout, separate } from './layout'
+import type { Placed } from './layout'
 import { diffReadings } from './model'
 import type { ReadingSnapshot } from './model'
 
@@ -34,15 +35,69 @@ export function createBoard(field: HTMLElement): Board {
     for (const cb of tapCbs) cb(id)
   }
 
+  // Padding added to a mark's raw half-width before it's handed to
+  // `layout.position`'s wall clamp (see `settleAll`, and layout.ts).
+  const WALL_PAD = 8
+
   function place(id: string, el: HTMLElement) {
     const w = field.clientWidth
     const h = field.clientHeight
-    // Raw half-width, unclamped: `layout.position` is the single place that
-    // clamps it against `w * 0.45` (see layout.ts).
-    const half = el.getBoundingClientRect().width / 2 + 8
+    // Raw half-width, unclamped: `layout.position` clamps it against
+    // `w * 0.45` internally (see layout.ts). Only used for ghosts seeded
+    // before any `apply()`/`relayout()` has run `settleAll`'s separation
+    // pass over them.
+    const half = el.getBoundingClientRect().width / 2 + WALL_PAD
     const { x, y } = layout.position(id, { width: w, height: h }, half)
     el.style.left = `${x}px`
     el.style.top = `${y}px`
+  }
+
+  /**
+   * Recompute every live mark's (real + ghost) slot position, run one
+   * `separate` pass over the whole field so no two marks' boxes overlap,
+   * then commit final `left`/`top`. Ids in `instantIds` get their new
+   * position applied with transitions suppressed for one frame (fresh
+   * marks in `apply()`, every ghost in `relayout()`) so they jump instead
+   * of animating in from the wrong spot.
+   */
+  function settleAll(instantIds: Set<string>) {
+    const w = field.clientWidth
+    const h = field.clientHeight
+    const box = { width: w, height: h }
+
+    const prevTransitions = new Map<string, string>()
+    for (const id of instantIds) {
+      const el = live.get(id)
+      if (!el) continue
+      prevTransitions.set(id, el.style.transition)
+      el.style.transition = 'none'
+    }
+
+    const placed: Placed[] = []
+    for (const [id, el] of live) {
+      // Measured *after* font-size/weight are set for this apply, and with
+      // the element's transform scale at its steady-state 1 — see place().
+      const rect = el.getBoundingClientRect()
+      const halfW = rect.width / 2
+      const halfH = rect.height / 2
+      const { x, y } = layout.position(id, box, halfW + WALL_PAD)
+      placed.push({ id, x, y, halfW, halfH })
+    }
+
+    const separated = separate(placed, box)
+    for (const p of separated) {
+      const el = live.get(p.id)
+      if (!el) continue
+      el.style.left = `${p.x}px`
+      el.style.top = `${p.y}px`
+    }
+
+    for (const id of instantIds) {
+      const el = live.get(id)
+      if (!el) continue
+      void el.offsetWidth
+      el.style.transition = prevTransitions.get(id) ?? ''
+    }
   }
 
   /** Makes `el` tappable/focusable and wires it to `emitTap(id)`. Only real marks get this. */
@@ -115,6 +170,8 @@ export function createBoard(field: HTMLElement): Board {
       setTimeout(() => el.remove(), instant ? 0 : DEPART_MS)
     }
 
+    const freshIds = new Set<string>()
+
     for (const m of s.marks) {
       let el = live.get(m.id)
       const size = Math.round(15 + Math.min(0.5, m.p) * 62)
@@ -149,14 +206,14 @@ export function createBoard(field: HTMLElement): Board {
       el.style.fontVariationSettings = `"opsz" 144, "wght" ${wght}, "SOFT" 60`
       el.style.opacity = String(0.55 + Math.min(0.45, m.p))
       el.style.zIndex = String(Math.round(m.p * 100))
-      if (fresh) el.style.transition = 'none'
-      place(m.id, el)
-      if (fresh) {
-        void el.offsetWidth
-        el.style.transition = ''
-      }
+      if (fresh) freshIds.add(m.id)
       el.classList.toggle('lit', m.id === litId)
     }
+
+    // One separation pass over every live mark (real + ghost) so slot
+    // placement's "first appearance" order can't leave two labels
+    // overlapping.
+    settleAll(freshIds)
 
     field.classList.toggle('slack', s.slack)
     prev = s
@@ -186,18 +243,14 @@ export function createBoard(field: HTMLElement): Board {
    * `resize` handler (docs/design/sounding-phone.template.html).
    */
   function relayout() {
+    const ghostIds = new Set<string>()
     for (const [id, el] of live) {
-      const isGhost = el.classList.contains('ghost')
-      if (isGhost) {
-        const prevTransition = el.style.transition
-        el.style.transition = 'none'
-        place(id, el)
-        void el.offsetWidth
-        el.style.transition = prevTransition
-      } else {
-        place(id, el)
-      }
+      if (el.classList.contains('ghost')) ghostIds.add(id)
     }
+    // Same separation pass as apply(): ghosts jump instantly (as before),
+    // real marks animate to their resolved spot via the element's own
+    // transition.
+    settleAll(ghostIds)
   }
 
   function onTap(cb: (id: string) => void) {
