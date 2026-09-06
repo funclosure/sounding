@@ -15,9 +15,9 @@ export interface WebSocketLike {
 
 const ENDPOINT = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
 
-/** Setup frame sent on socket open. `languageCodes: []` lets Gemini auto-detect; a non-empty list pins transcription to those languages. */
-export function setupMessage(languageCodes: string[]) {
-  return { setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes, mode: 'VERBATIM' } } }
+/** Setup frame sent on socket open. `languageCodes: []` lets Gemini auto-detect; a non-empty list pins transcription to those languages. `customVocabulary` biases spelling/labelling toward names the speaker brought as context. */
+export function setupMessage(languageCodes: string[], customVocabulary: string[] = []) {
+  return { setup: { model: 'models/gemini-3.5-transcribe-live', generationConfig: { responseModalities: ['TEXT'] }, inputAudioTranscription: { languageCodes, customVocabulary, mode: 'VERBATIM' } } }
 }
 export const SETUP = setupMessage(['en-US'])
 const SESSION_LIMIT_MS = 9.5 * 60_000
@@ -41,6 +41,7 @@ interface Options {
   setTimer?: typeof setTimeout
   clearTimer?: typeof clearTimeout
   languageCodes?: string[]
+  customVocabulary?: string[]
 }
 
 export class TranscribeLiveClient implements Transcriber {
@@ -68,6 +69,7 @@ export class TranscribeLiveClient implements Transcriber {
   private readonly setTimer: typeof setTimeout
   private readonly clearTimer: typeof clearTimeout
   private readonly languageCodes: string[]
+  private readonly customVocabulary: string[]
 
   constructor(private readonly apiKey: string, opts: Options = {}) {
     this.factory = opts.socketFactory ?? ((url) => new (globalThis as unknown as { WebSocket: new (url: string) => WebSocketLike }).WebSocket(url))
@@ -75,6 +77,7 @@ export class TranscribeLiveClient implements Transcriber {
     this.setTimer = opts.setTimer ?? setTimeout
     this.clearTimer = opts.clearTimer ?? clearTimeout
     this.languageCodes = opts.languageCodes ?? ['en-US']
+    this.customVocabulary = opts.customVocabulary ?? []
   }
 
   async connect(cbs: TranscriberCallbacks): Promise<void> {
@@ -110,7 +113,7 @@ export class TranscribeLiveClient implements Transcriber {
       const doResolve = () => { if (settled) return; settled = true; clearSetupTimer(); resolve(ws) }
       const doReject = (err: Error) => { if (settled) return; settled = true; clearSetupTimer(); reject(err) }
       ws.onopen = () => {
-        ws.send(JSON.stringify(setupMessage(this.languageCodes)))
+        ws.send(JSON.stringify(setupMessage(this.languageCodes, this.customVocabulary)))
         setupTimer = this.setTimer(() => {
           doReject(new Error('transcribe-live setup timed out'))
           try { ws.close() } catch { /* already closed */ }

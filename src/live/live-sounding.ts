@@ -31,6 +31,8 @@ export interface LiveSoundingOptions {
   clock: Clock
   send: (m: LiveMessage) => void
   soundingId: string
+  /** Context text brought before talking, applied right after drop, before the first commit. */
+  context?: string
 }
 
 function makeInterpreter(name: InterpreterName): Interpreter {
@@ -55,6 +57,8 @@ export class LiveSounding {
    */
   private callbacksClosed = false
   private stopPromise: Promise<{ logPath: string; summary: string }> | null = null
+  /** conceptId -> label, kept current from every reading.changed forwarded by flush(); backs follow(). */
+  private readonly labels = new Map<string, string>()
 
   constructor(private readonly opts: LiveSoundingOptions) {
     const interpreter = makeInterpreter(opts.interpreterName)
@@ -79,9 +83,13 @@ export class LiveSounding {
   }
 
   async start(): Promise<void> {
-    const { clock, transcriber } = this.opts
+    const { clock, transcriber, context } = this.opts
     clock.start()
     this.session.drop()
+    // Right after drop, before connecting: so context.brought is the first
+    // event after sounding.dropped, and the context hint is in place before
+    // any audio (and thus any commit) can reach the interpreter.
+    if (context) await this.run(() => this.session.setContext(clock.now(), context))
     this.flush()
     await transcriber.connect({
       onInterim: (text) => void this.onInterim(text),
@@ -102,6 +110,27 @@ export class LiveSounding {
     if (this.stopped) return
     this.ring.push(pcm, this.opts.clock.now())
     this.opts.transcriber.sendAudio(pcm)
+  }
+
+  /** Update the context hint mid-session. Ignored once callbacks are closed (nothing left to hint). */
+  async setContext(text: string): Promise<void> {
+    if (this.callbacksClosed) return
+    await this.run(() => this.session.setContext(this.opts.clock.now(), text))
+  }
+
+  /**
+   * Follow a concept by id (or let go with null). Looks the id up in the
+   * labels this sounding has seen; an id that isn't known (or null) resolves
+   * to letting go — the caller can tell an explicit let-go (conceptId was
+   * already null) apart from an unknown id (conceptId was non-null but the
+   * label came back null) and warn only for the latter.
+   */
+  async follow(conceptId: string | null): Promise<{ label: string | null }> {
+    if (this.callbacksClosed) return { label: null }
+    const label = conceptId ? (this.labels.get(conceptId) ?? null) : null
+    const resolvedId = label ? conceptId : null
+    await this.run(() => this.session.setFollow(this.opts.clock.now(), resolvedId, label))
+    return { label }
   }
 
   /** Idempotent: a second call (e.g. an explicit stop racing ws close) returns the same result. */
@@ -183,6 +212,10 @@ export class LiveSounding {
 
   private flush(): void {
     const all = this.session.log.all()
-    while (this.sent < all.length) this.opts.send(all[this.sent++])
+    while (this.sent < all.length) {
+      const e = all[this.sent++]
+      if (e.type === 'reading.changed') for (const mark of e.reading.marks) this.labels.set(mark.conceptId, mark.label)
+      this.opts.send(e)
+    }
   }
 }

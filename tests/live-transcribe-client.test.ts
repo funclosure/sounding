@@ -62,6 +62,33 @@ describe('TranscribeLiveClient', () => {
     expect(JSON.parse(ws.sent[0])).toEqual(setupMessage(['fr-FR']))
   })
 
+  it('sends the configured customVocabulary in the setup message', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = new TranscribeLiveClient('KEY', {
+      socketFactory: (url) => new FakeSocket(url),
+      sessionLimitMs: 1000,
+      setTimer: ((fn: () => void, ms: number) => { timers.push({ at: now.t + ms, fn }); return timers.length as unknown as NodeJS.Timeout }) as typeof setTimeout,
+      clearTimer: (() => {}) as typeof clearTimeout,
+      customVocabulary: ['Sounding'],
+    })
+    void c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open()
+    expect(JSON.parse(ws.sent[0])).toEqual(setupMessage(['en-US'], ['Sounding']))
+    expect(JSON.parse(ws.sent[0]).setup.inputAudioTranscription.customVocabulary).toEqual(['Sounding'])
+  })
+
+  it('defaults customVocabulary to an empty array', async () => {
+    FakeSocket.created = []
+    const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []
+    const c = makeClient(now, timers)
+    void c.connect({ onInterim: () => {}, onFinal: () => {}, onStatus: () => {} })
+    const ws = FakeSocket.created[0]
+    ws.open()
+    expect(JSON.parse(ws.sent[0]).setup.inputAudioTranscription.customVocabulary).toEqual([])
+  })
+
   it('sends an empty languageCodes array (auto-detect) when configured', async () => {
     FakeSocket.created = []
     const now = { t: 0 }; const timers: Array<{ at: number; fn: () => void }> = []

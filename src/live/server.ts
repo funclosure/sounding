@@ -8,6 +8,7 @@ import { stampName } from '../devserver/paths'
 import { Clock } from './clock'
 import { LiveSounding, type InterpreterName, type LiveMessage } from './live-sounding'
 import { TranscribeLiveClient } from './transcribe-live'
+import { vocabularyFrom } from './vocabulary'
 import { FakeTranscriber } from './fake-transcriber'
 import { streamFile } from './fake-mic'
 import type { Transcriber } from './transcriber'
@@ -17,6 +18,12 @@ interface Args { interpreter: InterpreterName; port: number; from?: string; fixt
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+const CONTEXT_MAX_CHARS = 4000
+/** true only for a validation-worthy string: within the length cap. Doesn't accept undefined — caller checks presence separately. */
+function isValidContext(v: unknown): v is string {
+  return typeof v === 'string' && v.length <= CONTEXT_MAX_CHARS
 }
 
 /** Only a browser tab served from this same machine may open the live socket. */
@@ -46,7 +53,8 @@ export function parseArgs(argv: string[]): Args {
   return a
 }
 
-async function makeTranscriber(args: Args, clock: Clock): Promise<Transcriber> {
+/** `context` only affects the real client's custom vocabulary — fixture/`--from` playback ignores it. */
+async function makeTranscriber(args: Args, clock: Clock, context?: string): Promise<Transcriber> {
   if (args.fakeTranscriber) {
     let script: FixtureScript | undefined
     if (args.fixture) script = FIXTURES.find((f) => f.name === args.fixture)
@@ -56,7 +64,7 @@ async function makeTranscriber(args: Args, clock: Clock): Promise<Transcriber> {
   }
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY is not set — get one at aistudio.google.com')
-  return new TranscribeLiveClient(key, { languageCodes: args.lang === 'auto' ? [] : [args.lang] })
+  return new TranscribeLiveClient(key, { languageCodes: args.lang === 'auto' ? [] : [args.lang], customVocabulary: vocabularyFrom(context ?? '') })
 }
 
 async function runHeadless(args: Args): Promise<void> {
@@ -116,7 +124,7 @@ function serve(args: Args): void {
     }
     ws.on('message', async (data: Buffer, isBinary: boolean) => {
       if (isBinary) { live?.pushAudio(new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length - (data.length % 2)))); return }
-      let msg: { type?: string; interpreter?: string }
+      let msg: { type?: string; interpreter?: string; context?: unknown; text?: unknown; conceptId?: unknown }
       try { msg = JSON.parse(data.toString('utf8')) } catch { return }
       if (msg.type === 'start' && !live && !starting) {
         let interpreter = args.interpreter
@@ -124,15 +132,20 @@ function serve(args: Args): void {
           if ((['gemini', 'claude', 'recurrence'] as string[]).includes(msg.interpreter)) interpreter = msg.interpreter as InterpreterName
           else send({ type: 'live.status', state: 'warning', message: `unknown interpreter ${msg.interpreter}, using ${interpreter}` })
         }
+        let context: string | undefined
+        if (msg.context !== undefined) {
+          if (isValidContext(msg.context)) context = msg.context
+          else send({ type: 'live.status', state: 'warning', message: `context must be a string of at most ${CONTEXT_MAX_CHARS} characters, ignoring` })
+        }
         const clock = new Clock(args.speed)
         starting = (async () => {
-          const transcriber = await makeTranscriber({ ...args, interpreter }, clock)
+          const transcriber = await makeTranscriber({ ...args, interpreter }, clock, context)
           // A prior sounding on this connection may still be draining and
           // surfacing (stop() in flight); let it finish before this one
           // starts pushing audio into a fresh LiveSounding.
           if (stopping) { try { await stopping } catch { /* stop already reported its own error */ } }
           const soundingId = `live-${stampName(new Date()).slice(4)}.${interpreter}`
-          const l = new LiveSounding({ interpreterName: interpreter, transcriber, clock, send, soundingId })
+          const l = new LiveSounding({ interpreterName: interpreter, transcriber, clock, send, soundingId, context })
           live = l
           await l.start()
           if (args.from) {
@@ -143,7 +156,22 @@ function serve(args: Args): void {
         })().catch((e) => { send({ type: 'live.status', state: 'error', message: errMsg(e) }); live = null })
         await starting
         starting = null
-      } else if (msg.type === 'stop') await stop()
+      } else if (msg.type === 'stop') {
+        await stop()
+      } else if (msg.type === 'context') {
+        if (!live) return
+        if (isValidContext(msg.text)) await live.setContext(msg.text)
+        else send({ type: 'live.status', state: 'warning', message: `context must be a string of at most ${CONTEXT_MAX_CHARS} characters, ignoring` })
+      } else if (msg.type === 'follow') {
+        if (!live) return
+        const raw = msg.conceptId
+        if (raw !== null && typeof raw !== 'string') {
+          send({ type: 'live.status', state: 'warning', message: 'follow conceptId must be a string or null, ignoring' })
+          return
+        }
+        const { label } = await live.follow(raw)
+        if (raw !== null && label === null) send({ type: 'live.status', state: 'warning', message: 'unknown concept, let go' })
+      }
     })
     ws.on('close', () => void stop())
   })

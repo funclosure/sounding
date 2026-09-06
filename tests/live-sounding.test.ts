@@ -161,3 +161,98 @@ describe('LiveSounding — drained trailing final on stop', () => {
     expect(surfacedIdx, 'no sounding.surfaced message').toBeGreaterThan(emittedIdx)
   })
 })
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error('timed out waiting for condition')
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
+describe('LiveSounding — context and follow', () => {
+  it('context.brought is first after sounding.dropped, hints reach the interpreter, and follow resolves/loses labels', async () => {
+    const clock = new Clock(10)
+    const transcriber = new StubTranscriber()
+    const messages: LiveMessage[] = []
+    const soundingId = 'live-test-context-follow.recurrence'
+
+    const seenInputs: InterpreterInput[] = []
+    const spy = vi.spyOn(RecurrenceInterpreter.prototype, 'interpret').mockImplementation(
+      async function (this: RecurrenceInterpreter, input: InterpreterInput): Promise<InterpretationResult> {
+        seenInputs.push(input)
+        return { candidates: [{ label: 'Trust Wallet', strength: 0.9, confidence: 0.9, source: this.id, segmentId: input.segmentId }], costUsd: 0, latencyMs: 0 }
+      },
+    )
+
+    const live = new LiveSounding({ interpreterName: 'recurrence', transcriber, clock, send: (m) => messages.push(m), soundingId, context: 'Trust Wallet' })
+    try {
+      await live.start()
+      const cbs = transcriber.cbs
+      if (!cbs) throw new Error('transcriber never connected')
+
+      expect(messages[0]?.type).toBe('sounding.dropped')
+      expect(messages[1]?.type).toBe('context.brought')
+      expect((messages[1] as Extract<LiveMessage, { type: 'context.brought' }>).text).toBe('Trust Wallet')
+
+      cbs.onFinal('Trust Wallet is on my mind today')
+      await waitFor(() => messages.some((m) => m.type === 'candidates.emitted'), 10_000)
+      await waitFor(
+        () => messages.some((m): m is Extract<LiveMessage, { type: 'reading.changed' }> => m.type === 'reading.changed' && m.reading.marks.some((mk) => mk.conceptId === 'c1')),
+        10_000,
+      )
+
+      expect(seenInputs.length).toBeGreaterThanOrEqual(1)
+      expect(seenInputs[0].hints?.context).toBe('Trust Wallet')
+
+      const withMark = messages.find(
+        (m): m is Extract<LiveMessage, { type: 'reading.changed' }> => m.type === 'reading.changed' && m.reading.marks.some((mk) => mk.conceptId === 'c1'),
+      )!
+      const c1 = withMark.reading.marks.find((mk) => mk.conceptId === 'c1')!
+
+      const { label } = await live.follow('c1')
+      expect(label).toBe(c1.label)
+      const followed = messages.filter((m): m is Extract<LiveMessage, { type: 'mark.followed' }> => m.type === 'mark.followed').at(-1)!
+      expect(followed.conceptId).toBe('c1')
+      expect(followed.label).toBe(c1.label)
+
+      const inputsBefore = seenInputs.length
+      cbs.onFinal('more talk about the wallet')
+      await waitFor(() => seenInputs.length > inputsBefore, 10_000)
+      expect(seenInputs.at(-1)!.hints?.follow).toBe(c1.label)
+
+      const { label: unknownLabel } = await live.follow('nope')
+      expect(unknownLabel).toBeNull()
+      const followed2 = messages.filter((m): m is Extract<LiveMessage, { type: 'mark.followed' }> => m.type === 'mark.followed').at(-1)!
+      expect(followed2.conceptId).toBeNull()
+      expect(followed2.label).toBeNull()
+
+      await live.stop()
+    } finally {
+      spy.mockRestore()
+      const logPath = `soundings/${soundingId}.jsonl`
+      if (existsSync(logPath)) unlinkSync(logPath)
+    }
+  }, 20_000)
+
+  it('follow() after callbacksClosed is ignored', async () => {
+    const clock = new Clock(10)
+    const transcriber = new StubTranscriber()
+    const messages: LiveMessage[] = []
+    const soundingId = 'live-test-follow-after-close.recurrence'
+
+    const live = new LiveSounding({ interpreterName: 'recurrence', transcriber, clock, send: (m) => messages.push(m), soundingId })
+    try {
+      await live.start()
+      await live.stop()
+      const before = messages.filter((m) => m.type === 'mark.followed').length
+      const { label } = await live.follow('anything')
+      expect(label).toBeNull()
+      const after = messages.filter((m) => m.type === 'mark.followed').length
+      expect(after).toBe(before)
+    } finally {
+      const logPath = `soundings/${soundingId}.jsonl`
+      if (existsSync(logPath)) unlinkSync(logPath)
+    }
+  })
+})
