@@ -1,6 +1,6 @@
 import { EventLog } from './events'
 import type { Ms } from './types'
-import type { AudioSegment, Interpreter, InterpreterInput } from '../interpret/port'
+import type { AudioSegment, Interpreter, InterpreterInput, InterpretationHints } from '../interpret/port'
 import type { ReadingDynamics } from '../salience/dynamics'
 import type { SalienceConfig } from '../salience/config'
 
@@ -24,6 +24,7 @@ export class SoundingSession {
   private opQueue: Promise<unknown> = Promise.resolve()
   private latestT: Ms = 0
   private readonly inFlight = new Set<Promise<void>>()
+  private hints: InterpretationHints = {}
 
   constructor(
     private readonly interpreter: Interpreter,
@@ -63,6 +64,27 @@ export class SoundingSession {
       this.advanceNow(t)
       this.log.append({ type: 'segment.pending', t, text })
       this.dynamics.nudge(t, text)
+    })
+  }
+
+  /** Context the speaker brought before talking — not evidence, but improves labelling/spelling downstream. Never touches ReadingDynamics. */
+  setContext(t: Ms, text: string): Promise<void> {
+    this.touch(t)
+    return this.enqueue(() => {
+      this.advanceNow(t)
+      this.log.append({ type: 'context.brought', t, text })
+      this.hints = { ...this.hints, context: text }
+    })
+  }
+
+  /** The concept the speaker is drilling into. `null, null` clears it while keeping context. Never touches ReadingDynamics. */
+  setFollow(t: Ms, conceptId: string | null, label: string | null): Promise<void> {
+    this.touch(t)
+    return this.enqueue(() => {
+      this.advanceNow(t)
+      this.log.append({ type: 'mark.followed', t, conceptId, label })
+      const { follow: _drop, ...rest } = this.hints
+      this.hints = label ? { ...rest, follow: label } : rest
     })
   }
 
@@ -113,13 +135,15 @@ export class SoundingSession {
   }
 
   private async buildInput(seg: { segmentId: string; transcript: string; startT: Ms; endT: Ms }): Promise<InterpreterInput> {
+    const hints = Object.keys(this.hints).length ? { ...this.hints } : undefined
     if (this.interpreter.input === 'audio') {
       if (!this.audioSource) {
         throw new Error(`interpreter ${this.interpreter.id} needs audio input but the session has no audioSource`)
       }
-      return this.audioSource({ segmentId: seg.segmentId, startT: seg.startT, endT: seg.endT })
+      const audio = await this.audioSource({ segmentId: seg.segmentId, startT: seg.startT, endT: seg.endT })
+      return hints ? { ...audio, hints } : audio
     }
-    return { kind: 'transcript', segmentId: seg.segmentId, text: seg.transcript, startT: seg.startT, endT: seg.endT }
+    return { kind: 'transcript', segmentId: seg.segmentId, text: seg.transcript, startT: seg.startT, endT: seg.endT, hints }
   }
 
   private advanceNow(t: Ms): void {

@@ -9,6 +9,8 @@ export type SoundingEvent =
   | { type: 'candidates.emitted'; t: Ms; segmentId: string; source: string; candidates: ConceptCandidate[]; costUsd: number; latencyMs: number }
   | { type: 'reading.changed'; t: Ms; transitions: Transition[]; reading: Reading }
   | { type: 'sounding.surfaced'; t: Ms }
+  | { type: 'context.brought'; t: Ms; text: string }
+  | { type: 'mark.followed'; t: Ms; conceptId: string | null; label: string | null }
 
 /** Append-only, timestamp-monotonic log. The session's spine. */
 export class EventLog {
@@ -21,6 +23,8 @@ export class EventLog {
     'candidates.emitted': ['segmentId', 'source', 'candidates', 'costUsd', 'latencyMs'],
     'reading.changed': ['transitions', 'reading'],
     'sounding.surfaced': [],
+    'context.brought': ['text'],
+    'mark.followed': ['conceptId', 'label'],
   }
 
   append(e: SoundingEvent): void {

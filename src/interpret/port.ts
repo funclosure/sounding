@@ -1,11 +1,22 @@
 import type { ConceptCandidate, Ms } from '../core/types'
 
+/**
+ * Interpretation hints riding on a port input. Neither field carries
+ * evidence for the reading on its own — they steer transcription/labelling
+ * only. Never fed into ReadingDynamics directly.
+ */
+export interface InterpretationHints {
+  context?: string
+  follow?: string
+}
+
 export interface Transcript {
   kind: 'transcript'
   segmentId: string
   text: string
   startT: Ms
   endT: Ms
+  hints?: InterpretationHints
 }
 
 export interface AudioSegment {
@@ -15,6 +26,7 @@ export interface AudioSegment {
   data: Uint8Array      // encoded bytes of the audio window
   startT: Ms
   endT: Ms
+  hints?: InterpretationHints
 }
 
 /**
