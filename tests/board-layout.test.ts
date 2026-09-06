@@ -132,4 +132,86 @@ describe('separate', () => {
     ]
     expect(separate(items, box)).toEqual(separate(items, box))
   })
+
+  it('separates two items with exactly coincident centres without producing NaN', () => {
+    const box = { width: 400, height: 600 }
+    const items: Placed[] = [
+      { id: 'a', x: 200, y: 300, halfW: 40, halfH: 20 },
+      { id: 'b', x: 200, y: 300, halfW: 40, halfH: 20 },
+    ]
+    const out = separate(items, box)
+    for (const p of out) {
+      expect(Number.isNaN(p.x)).toBe(false)
+      expect(Number.isNaN(p.y)).toBe(false)
+    }
+    expect(overlaps(out[0], out[1])).toBe(false)
+    expect(out.every((p) => inBounds(p, box))).toBe(true)
+  })
+
+  it('returns every item unmoved (identical) when the whole layout starts pairwise clear', () => {
+    const box = { width: 400, height: 600 }
+    const items: Placed[] = [
+      { id: 'a', x: 80, y: 100, halfW: 30, halfH: 15 },
+      { id: 'b', x: 200, y: 300, halfW: 30, halfH: 15 },
+      { id: 'c', x: 320, y: 500, halfW: 30, halfH: 15 },
+    ]
+    const out = separate(items, box)
+    expect(out).toEqual(items)
+  })
+
+  it('separates a mixed-size pair (a large box overlapping a small one)', () => {
+    const box = { width: 400, height: 600 }
+    const items: Placed[] = [
+      { id: 'big', x: 200, y: 300, halfW: 90, halfH: 40 },
+      { id: 'small', x: 230, y: 305, halfW: 15, halfH: 10 },
+    ]
+    expect(overlaps(items[0], items[1])).toBe(true)
+    const out = separate(items, box)
+    const big = out.find((p) => p.id === 'big')!
+    const small = out.find((p) => p.id === 'small')!
+    expect(overlaps(big, small)).toBe(false)
+    expect(inBounds(big, box)).toBe(true)
+    expect(inBounds(small, box)).toBe(true)
+  })
+
+  it('resolves a pair overlapping right at the wall to pairwise-clear when the field has room', () => {
+    // Both boxes start pinned at/near the left wall, overlapping each other —
+    // clamping to stay in-bounds competes with pushing apart. The field is
+    // big enough here for both constraints to be satisfied at once.
+    const box = { width: 300, height: 400 }
+    const items: Placed[] = [
+      { id: 'a', x: 60, y: 200, halfW: 50, halfH: 25 },
+      { id: 'b', x: 65, y: 202, halfW: 50, halfH: 25 },
+    ]
+    expect(overlaps(items[0], items[1])).toBe(true)
+    const out = separate(items, box)
+    const [a, b] = out
+    expect(inBounds(a, box)).toBe(true)
+    expect(inBounds(b, box)).toBe(true)
+    expect(overlaps(a, b)).toBe(false)
+  })
+
+  it('documents the accepted outcome when a wall clamp leaves no room to fully separate', () => {
+    // A 100x100 box with two 80x80 marks: `clampX` collapses both centres to
+    // the single valid x (50 — half-width 40 exceeds w*0.45, and the
+    // resulting [half+10, w-half-10] band is a single point), and `clampY`'s
+    // [28, 72] band (44px) is narrower than the 86px the pair would need to
+    // fully clear each other vertically. Every iteration's push is undone by
+    // the very clamp that keeps both boxes on-screen, so a residual overlap
+    // is the correctly-documented outcome here, not a bug — `inBounds` still
+    // holds throughout.
+    const box = { width: 100, height: 100 }
+    const items: Placed[] = [
+      { id: 'a', x: 50, y: 50, halfW: 40, halfH: 40 },
+      { id: 'b', x: 50, y: 52, halfW: 40, halfH: 40 },
+    ]
+    expect(overlaps(items[0], items[1])).toBe(true)
+    const out = separate(items, box)
+    const [a, b] = out
+    expect(inBounds(a, box)).toBe(true)
+    expect(inBounds(b, box)).toBe(true)
+    expect(overlaps(a, b)).toBe(true)
+    expect(a).toEqual({ id: 'a', x: 50, y: 28, halfW: 40, halfH: 40 })
+    expect(b).toEqual({ id: 'b', x: 50, y: 72, halfW: 40, halfH: 40 })
+  })
 })

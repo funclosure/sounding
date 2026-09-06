@@ -595,7 +595,7 @@ const contextTextareas: HTMLTextAreaElement[] = []
 function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
   el.innerHTML = `
     <h3>What are you circling already?</h3>
-    <textarea placeholder="A question, a few notes, a name…"></textarea>
+    <textarea placeholder="A question, a few notes, a name…" maxlength="4000"></textarea>
     <div class="chips">
       <button class="chip" type="button" data-ctx="A question I keep coming back to.">a question</button>
       <button class="chip" type="button" data-ctx="Notes from last time.">notes from last time</button>

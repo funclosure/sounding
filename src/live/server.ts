@@ -159,6 +159,13 @@ function serve(args: Args): void {
       } else if (msg.type === 'stop') {
         await stop()
       } else if (msg.type === 'context') {
+        // A `context` message can race a still-in-flight `start` (the
+        // browser drops it as soon as the socket opens, before the session
+        // is up) — without waiting here, `live` is still null and the
+        // message is silently dropped. Wait for `start` to settle (ignoring
+        // its own error, which it already reported) and apply the context
+        // once `live` exists.
+        if (starting) { try { await starting } catch { /* start already reported its own error */ } }
         if (!live) return
         if (isValidContext(msg.text)) await live.setContext(msg.text)
         else send({ type: 'live.status', state: 'warning', message: `context must be a string of at most ${CONTEXT_MAX_CHARS} characters, ignoring` })

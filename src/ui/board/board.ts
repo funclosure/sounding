@@ -78,9 +78,17 @@ export function createBoard(field: HTMLElement): Board {
       // Measured *after* font-size/weight are set for this apply, and with
       // the element's transform scale at its steady-state 1 — see place().
       const rect = el.getBoundingClientRect()
-      const halfW = rect.width / 2
       const halfH = rect.height / 2
-      const { x, y } = layout.position(id, box, halfW + WALL_PAD)
+      // `layout.position`'s wall clamp (clampX) and `separate`'s own wall
+      // clamp must agree on the same half-width, or a mark that `position`
+      // placed flush against the padded wall gets re-clamped by `separate`
+      // to a tighter (unpadded) bound and visibly snaps inward — so the
+      // padded half-width is what `separate` receives as `halfW` too (it
+      // also folds into `separate`'s pairwise-overlap test, which just
+      // means two marks are held `WALL_PAD` px further apart than their
+      // rendered edges strictly require — harmless).
+      const halfW = rect.width / 2 + WALL_PAD
+      const { x, y } = layout.position(id, box, halfW)
       placed.push({ id, x, y, halfW, halfH })
     }
 
@@ -118,6 +126,7 @@ export function createBoard(field: HTMLElement): Board {
 
   function seedGhosts(labels: Array<{ id: string; label: string }>) {
     seeds = labels
+    const freshIds = new Set<string>()
     for (const { id, label } of seeds) {
       if (live.has(id)) continue
       // Ghosts are inert context seeds: no click/keydown listeners, no
@@ -130,7 +139,18 @@ export function createBoard(field: HTMLElement): Board {
       field.appendChild(el)
       live.set(id, el)
       place(id, el)
+      freshIds.add(id)
     }
+    // `place()` above only slots each new ghost against the *current* live
+    // set in first-appearance order — it never checks a new ghost against
+    // marks seeded (or arrived) after it, so two ghosts seeded together, or
+    // a ghost seeded onto a field that already has real marks, can still
+    // overlap. Run the same separation pass `apply()`/`relayout()` use so
+    // seeding after surfacing settles everyone, new ghosts included; the
+    // new ghosts jump straight to their settled spot (never painted before
+    // now, so nothing to glide from) while any already-live mark they
+    // displace glides out of the way.
+    if (freshIds.size > 0) settleAll(freshIds)
   }
 
   function clearGhosts() {

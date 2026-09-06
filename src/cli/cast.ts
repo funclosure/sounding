@@ -102,7 +102,7 @@ async function main() {
   const base = basename(opts.audioPath).replace(/\.[^.]+$/, '')
   const session = new SoundingSession(interpreter, dynamics, config, `${base}.${opts.interpreter}`, audioSource)
   session.drop()
-  if (opts.contextPath) await session.setContext(0, readFileSync(opts.contextPath, 'utf8'))
+  if (opts.contextPath) await session.setContext(0, readFileSync(opts.contextPath, 'utf8').trim())
 
   const runner = new ReplayRunner(session, buildCaptureEvents(script), script.endT)
   await runner.runToEnd()

@@ -62,4 +62,18 @@ describe('vocabularyFrom', () => {
   it('splits a Latin token from an adjoining Han run at the script boundary even with no space', () => {
     expect(vocabularyFrom('我在做Sounding这个应用')).toEqual(['我在做', 'Sounding', '这个应用'])
   })
+
+  it('ignores contractions and possessives, keeping a multi-word name truncated at its possessive', () => {
+    const text = "I don't know if it's about Ray Dalio's fund or Web3 and my sister's Trust Wallet. Isn't that Nvidia?"
+    expect(vocabularyFrom(text)).toEqual(['Ray Dalio', 'Trust Wallet', 'Nvidia'])
+  })
+
+  it('keeps a single-word possessive name truncated at its own apostrophe', () => {
+    expect(vocabularyFrom("Apple's earnings beat Nvidia's guidance")).toEqual(['Apple', 'Nvidia'])
+  })
+
+  it('does not extract a truncated stem from a digit- or underscore-adjacent token', () => {
+    expect(vocabularyFrom('Web3 and GPT4')).toEqual([])
+    expect(vocabularyFrom('a snake_Case identifier')).toEqual([])
+  })
 })
