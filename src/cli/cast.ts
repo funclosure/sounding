@@ -27,6 +27,7 @@ export interface CastArgs {
   interpreter: InterpreterName
   modelPath: string
   threshold: number | undefined
+  contextPath: string | undefined
 }
 
 export function parseCastArgs(argv: string[]): CastArgs {
@@ -45,12 +46,19 @@ export function parseCastArgs(argv: string[]): CastArgs {
       const v = Number(argv[++i])
       if (!Number.isFinite(v)) throw new Error('--threshold requires a number')
       args.threshold = v
+    } else if (a === '--context') {
+      const v = argv[++i]
+      if (!v) throw new Error('--context requires a path')
+      args.contextPath = v
     }
     else if (!a.startsWith('-') && !args.audioPath) args.audioPath = a
     else throw new Error(`unrecognized argument ${a}`)
   }
   if (!args.audioPath || !args.interpreter) {
-    throw new Error('usage: npm run cast -- <audio-file> -i <recurrence|claude|gemini> [--model-path <ggml>] [--threshold <n>]')
+    throw new Error('usage: npm run cast -- <audio-file> -i <recurrence|claude|gemini> [--model-path <ggml>] [--threshold <n>] [--context <file>]')
+  }
+  if (args.contextPath && !existsSync(args.contextPath)) {
+    throw new Error(`--context file not found: ${args.contextPath}`)
   }
   return args as CastArgs
 }
@@ -94,6 +102,7 @@ async function main() {
   const base = basename(opts.audioPath).replace(/\.[^.]+$/, '')
   const session = new SoundingSession(interpreter, dynamics, config, `${base}.${opts.interpreter}`, audioSource)
   session.drop()
+  if (opts.contextPath) await session.setContext(0, readFileSync(opts.contextPath, 'utf8'))
 
   const runner = new ReplayRunner(session, buildCaptureEvents(script), script.endT)
   await runner.runToEnd()

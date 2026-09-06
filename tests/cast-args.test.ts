@@ -12,6 +12,7 @@ describe('parseCastArgs', () => {
       interpreter: 'claude',
       modelPath: 'models/ggml-large-v3-turbo.bin',
       threshold: undefined,
+      contextPath: undefined,
     })
   })
   it('accepts overrides', () => {
@@ -24,6 +25,17 @@ describe('parseCastArgs', () => {
     expect(() => parseCastArgs([])).toThrow(/usage/i)
     expect(() => parseCastArgs(['x.m4a', '-i', 'claude', '--threshold'])).toThrow(/threshold/)
     expect(() => parseCastArgs(['x.m4a', '-i', 'claude', '--model-path'])).toThrow(/model-path/)
+  })
+  it('accepts --context pointing at an existing file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cast-ctx-'))
+    const ctx = join(dir, 'ctx.txt')
+    writeFileSync(ctx, 'Ray Dalio; TSMC')
+    const a = parseCastArgs(['x.m4a', '-i', 'claude', '--context', ctx])
+    expect(a.contextPath).toBe(ctx)
+  })
+  it('rejects --context with a missing file or missing arg', () => {
+    expect(() => parseCastArgs(['x.m4a', '-i', 'claude', '--context', '/no/such/file.txt'])).toThrow(/not found/)
+    expect(() => parseCastArgs(['x.m4a', '-i', 'claude', '--context'])).toThrow(/context/)
   })
 })
 

@@ -4,6 +4,7 @@
 // transcript path so the two can be A/B'd on identical capture events.
 import { mapCandidates } from './candidates'
 import { llmCost } from './pricing'
+import { hintBlock } from './hints'
 import type { Interpreter, InterpreterInput, InterpretationResult } from '../interpret/port'
 import type { AudioSegment } from '../interpret/port'
 
@@ -13,12 +14,12 @@ import type { AudioSegment } from '../interpret/port'
 // throughout the official audio-understanding guide's REST/Python/JS samples.
 export const GEMINI_MODEL = 'gemini-3.7-flash'
 
-const AUDIO_PROMPT = `You are listening to a stretch of one person thinking aloud. Report concept candidates — what this talk is actually about or keeps returning to.
+export const AUDIO_PROMPT = `You are listening to a stretch of one person thinking aloud. Report concept candidates — what this talk is actually about or keeps returning to.
 
 Attend to the signals a transcript loses: emphasis, hesitation, pace changes, repetition with stress, the thing the voice keeps circling back to. Something said quickly in passing matters less than something said slowly, repeated, or stumbled over.
 
 Rules:
-- Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself. Report only the content being thought about.
+- Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself, the language being spoken, or whether the listener understands it. Report only the content being thought about.
 - Labels are short (1-4 words), in the speaker's own vocabulary where possible.
 - strength (0 to 1): how strongly this audio supports the concept (recurrence, centrality, vocal emphasis).
 - confidence (0 to 1): honesty required — a missing candidate costs less than a wrong one.
@@ -44,11 +45,12 @@ const RESPONSE_SCHEMA = {
 }
 
 export function buildGeminiRequest(audio: AudioSegment): object {
+  const block = hintBlock(audio.hints)
   return {
     contents: [
       {
         parts: [
-          { text: AUDIO_PROMPT },
+          { text: block ? `${AUDIO_PROMPT}\n\n${block}` : AUDIO_PROMPT },
           // inlineData/mimeType (camelCase): matches the current official
           // "Pass inline audio data" JS sample — protobuf JSON accepts this
           // interchangeably with the inline_data/mime_type spelling used in

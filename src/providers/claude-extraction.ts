@@ -4,7 +4,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { mapCandidates } from './candidates'
 import { llmCost } from './pricing'
-import type { Interpreter, InterpreterInput, InterpretationResult } from '../interpret/port'
+import { hintBlock } from './hints'
+import type { Interpreter, InterpreterInput, InterpretationResult, InterpretationHints } from '../interpret/port'
 
 const MODEL = 'claude-opus-5'
 const WINDOW_SEGMENTS = 8
@@ -12,11 +13,11 @@ const WINDOW_SEGMENTS = 8
 // sweep against higher efforts on the replay corpus later.
 const EXTRACTION_EFFORT = 'low'
 
-const SYSTEM_PROMPT = `You listen to a person thinking aloud and report concept candidates — the things this stretch of talk is actually about or keeps returning to.
+export const SYSTEM_PROMPT = `You listen to a person thinking aloud and report concept candidates — the things this stretch of talk is actually about or keeps returning to.
 
 Guidance:
 - Prefer what recurs or carries weight over what merely sounds like a topic. A named person, a specific memory, a repeated image, or an unresolved worry beats a tidy abstract noun. If someone talking through a job decision keeps mentioning their sister, "sister" is a candidate even though it isn't the "topic".
-- Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself. Report only the content being thought about.
+- Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself, the language being spoken, or whether the listener understands it. Report only the content being thought about.
 - Labels are short (1-4 words), in the speaker's own vocabulary where possible.
 - strength (0 to 1): how strongly THIS window of talk supports the concept — recurrence, centrality, emphasis.
 - confidence (0 to 1): how sure you are the concept is real and correctly labeled. Be honest: a missing candidate costs less than a wrong one.
@@ -43,10 +44,12 @@ const CANDIDATES_SCHEMA = {
   additionalProperties: false,
 } as const
 
-export function buildUserPrompt(window: string[]): string {
+export function buildUserPrompt(window: string[], hints?: InterpretationHints): string {
   const prior = window.slice(0, -1)
   const current = window.at(-1) ?? ''
-  return `Recent talk (oldest first):\n${prior.join('\n')}\n\nNewest segment (interpret it in the context of the above):\n${current}`
+  const base = `Recent talk (oldest first):\n${prior.join('\n')}\n\nNewest segment (interpret it in the context of the above):\n${current}`
+  const block = hintBlock(hints)
+  return block ? `${base}\n\n${block}` : base
 }
 
 export class ClaudeExtractionInterpreter implements Interpreter {
@@ -71,7 +74,7 @@ export class ClaudeExtractionInterpreter implements Interpreter {
         max_tokens: 8000,
         output_config: { effort: EXTRACTION_EFFORT, format: { type: 'json_schema', schema: CANDIDATES_SCHEMA } },
         system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-        messages: [{ role: 'user', content: buildUserPrompt(this.window) }],
+        messages: [{ role: 'user', content: buildUserPrompt(this.window, input.hints) }],
       })
       const latencyMs = Math.round(performance.now() - started)
       const costUsd = llmCost(MODEL, {
