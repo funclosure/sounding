@@ -45,4 +45,21 @@ describe('vocabularyFrom', () => {
     expect(vocabularyFrom('')).toEqual([])
     expect(vocabularyFrom('nothing to see here, all lowercase.')).toEqual([])
   })
+
+  it('matches CJK runs and accented Latin names without corrupting them', () => {
+    expect(vocabularyFrom('I met 王小明 and José García at Zürich')).toEqual(['王小明', 'José García', 'Zürich'])
+  })
+
+  it('matches accented capitalised runs', () => {
+    expect(vocabularyFrom('Müller runs Café Zoë')).toEqual(['Müller', 'Café Zoë'])
+  })
+
+  it('treats punctuation as splitting adjoining Han runs, alongside a Latin token', () => {
+    const text = '我在做 Sounding 这个应用，和我太太讨论投资'
+    expect(vocabularyFrom(text)).toEqual(['我在做', 'Sounding', '这个应用', '和我太太讨论投资'])
+  })
+
+  it('splits a Latin token from an adjoining Han run at the script boundary even with no space', () => {
+    expect(vocabularyFrom('我在做Sounding这个应用')).toEqual(['我在做', 'Sounding', '这个应用'])
+  })
 })

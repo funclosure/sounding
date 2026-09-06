@@ -255,4 +255,24 @@ describe('LiveSounding — context and follow', () => {
       if (existsSync(logPath)) unlinkSync(logPath)
     }
   })
+
+  it('setContext() after callbacksClosed is ignored', async () => {
+    const clock = new Clock(10)
+    const transcriber = new StubTranscriber()
+    const messages: LiveMessage[] = []
+    const soundingId = 'live-test-setcontext-after-close.recurrence'
+
+    const live = new LiveSounding({ interpreterName: 'recurrence', transcriber, clock, send: (m) => messages.push(m), soundingId })
+    try {
+      await live.start()
+      await live.stop()
+      const before = messages.filter((m) => m.type === 'context.brought').length
+      await live.setContext('anything')
+      const after = messages.filter((m) => m.type === 'context.brought').length
+      expect(after).toBe(before)
+    } finally {
+      const logPath = `soundings/${soundingId}.jsonl`
+      if (existsSync(logPath)) unlinkSync(logPath)
+    }
+  })
 })

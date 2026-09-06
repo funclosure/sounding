@@ -128,7 +128,7 @@ export class LiveSounding {
   async follow(conceptId: string | null): Promise<{ label: string | null }> {
     if (this.callbacksClosed) return { label: null }
     const label = conceptId ? (this.labels.get(conceptId) ?? null) : null
-    const resolvedId = label ? conceptId : null
+    const resolvedId = label !== null ? conceptId : null
     await this.run(() => this.session.setFollow(this.opts.clock.now(), resolvedId, label))
     return { label }
   }
