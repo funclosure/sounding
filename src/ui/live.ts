@@ -134,13 +134,17 @@ let lastShown: ReadingSnapshot | null = null
 // just to keep the axis extending.
 let lastBuildT: Ms = 0
 
-// ---- context (display-only: seeds ghost marks, never sent to the server)
+// ---- context: seeds ghost marks locally, and is sent to the server on
+// `start` (as the seeded vocabulary hint) and again via a `context` message
+// whenever it's (re)seeded or cleared while live.
 let contextText = ''
 let contextSeeds: Array<{ id: string; label: string }> = []
 const seenLabelIds = new Set<string>()
 const labelOf = new Map<string, string>()
 
-// ---- follow (display-only: orange highlight on a mark and its lane)
+// ---- follow: orange highlight on a mark and its lane, and sent to the
+// server as a `follow` message (null when letting go) whenever the socket
+// is open
 let lit: string | null = null
 
 // True once a `stopped` status has been handled — distinguishes the initial
@@ -257,6 +261,9 @@ function toggleFollow(id: string) {
   lanes.setLit(lit)
   lanesD.setLit(lit)
   hint.innerHTML = lit ? `following <b>${escapeHtml(labelOf.get(lit) ?? lit)}</b> · tap again to let go` : ''
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'follow', conceptId: lit }))
+  }
 }
 board.onTap(toggleFollow)
 lanes.onTapLane(toggleFollow)
@@ -543,7 +550,11 @@ async function start() {
       return
     }
     audio = a
-    socket.send(JSON.stringify(interpParam ? { type: 'start', interpreter: interpParam } : { type: 'start' }))
+    const startMsg: { type: 'start'; interpreter?: string; context?: string } = { type: 'start' }
+    if (interpParam) startMsg.interpreter = interpParam
+    const ctx = contextText.trim()
+    if (ctx) startMsg.context = ctx
+    socket.send(JSON.stringify(startMsg))
     state = 'live'
     syncCtxOpenVisibility()
     big.setAttribute('aria-label', 'Surface')
@@ -573,11 +584,12 @@ big.addEventListener('click', () => {
   else if (state === 'live') void stop()
 })
 
-// ---- context: seeds ghost marks by matching against labels as they arrive; nothing
-// is sent to the server. Built once into each of the two containers (the sheet's
-// #context and the desktop popover's #context-d) so both stay in sync — only one is
-// ever visible/interactive at a given viewport width, but their textareas mirror each
-// other so switching layouts mid-type doesn't lose what was typed.
+// ---- context: seeds ghost marks by matching against labels as they arrive, and
+// (via seed/clear below) sends the text to the server if a session is live. Built
+// once into each of the two containers (the sheet's #context and the desktop
+// popover's #context-d) so both stay in sync — only one is ever visible/interactive
+// at a given viewport width, but their textareas mirror each other so switching
+// layouts mid-type doesn't lose what was typed.
 const contextTextareas: HTMLTextAreaElement[] = []
 function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
   el.innerHTML = `
@@ -591,7 +603,8 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
     <p class="note">
       Context seeds faint marks on the board. They stay faint until your talking actually reaches them,
       then they become real. Nothing you bring counts as something you said. Seeding before you drop only
-      stores the text — labels aren't known until you start talking.
+      stores the text — labels aren't known until you start talking. Names here also help the transcriber
+      from the next drop.
     </p>
     <div class="row">
       <button class="act" type="button" data-act="seed">Seed the board</button>
@@ -619,6 +632,9 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
       .map(([id, label]) => ({ id, label }))
     board.clearGhosts()
     board.seedGhosts(contextSeeds)
+    if (state === 'live' && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'context', text: contextText }))
+    }
     opts.onSeed?.()
   })
   el.querySelector<HTMLButtonElement>('[data-act="clear"]')!.addEventListener('click', () => {
@@ -626,6 +642,9 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
     contextText = ''
     contextSeeds = []
     board.clearGhosts()
+    if (state === 'live' && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'context', text: '' }))
+    }
   })
 }
 buildContext(contextEl, { onSeed: () => sheet.set('peek') })
