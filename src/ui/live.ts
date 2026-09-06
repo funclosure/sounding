@@ -178,8 +178,9 @@ function slackWord(slack: boolean) {
 
 function matchesContext(label: string): boolean {
   if (!contextText) return false
+  const ct = contextText.toLowerCase()
   const l = label.toLowerCase()
-  return contextText.includes(l) || l.split(' ').some((w) => w.length > 4 && contextText.includes(w))
+  return ct.includes(l) || l.split(' ').some((w) => w.length > 4 && ct.includes(w))
 }
 
 function summary(evts: readonly SoundingEvent[]): string {
@@ -623,7 +624,7 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
     })
   }
   el.querySelector<HTMLButtonElement>('[data-act="seed"]')!.addEventListener('click', () => {
-    contextText = textarea.value.toLowerCase()
+    contextText = textarea.value.trim()
     const labels = new Map<string, string>()
     for (const r of readings) for (const mk of r.marks) labels.set(mk.id, mk.label)
     contextSeeds = [...labels.entries()]
