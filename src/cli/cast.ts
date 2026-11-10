@@ -1,5 +1,5 @@
 // cast: drop a recording through the pipeline and persist the sounding.
-//   npm run cast -- recordings/memo.m4a -i claude
+//   bun run cast -- recordings/memo.m4a -i claude
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { loadDotEnv } from './env'
 import { join, dirname, basename } from 'node:path'
@@ -56,7 +56,7 @@ export function parseCastArgs(argv: string[]): CastArgs {
     else throw new Error(`unrecognized argument ${a}`)
   }
   if (!args.audioPath || !args.interpreter) {
-    throw new Error('usage: npm run cast -- <audio-file> -i <recurrence|claude|claude-sub|gemini> [--model-path <ggml>] [--threshold <n>] [--context <file>]')
+    throw new Error('usage: bun run cast -- <audio-file> -i <recurrence|claude|claude-sub|gemini> [--model-path <ggml>] [--threshold <n>] [--context <file>]')
   }
   if (args.contextPath && !existsSync(args.contextPath)) {
     throw new Error(`--context file not found: ${args.contextPath}`)
