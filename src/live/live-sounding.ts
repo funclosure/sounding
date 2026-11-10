@@ -20,6 +20,7 @@ import { PcmRing, toWav } from './pcm-ring'
 import { heardWords } from './heard-words'
 import type { Transcriber } from './transcriber'
 import type { Clock } from './clock'
+import type { EarlierItem } from './earlier'
 
 export type { InterpreterName }
 export type LiveMessage =
@@ -31,6 +32,10 @@ export type LiveMessage =
   | { type: 'live.wrap'; state: 'writing' }
   | { type: 'live.wrap'; state: 'done'; text: string; prompt: string; isDefaultPrompt: boolean }
   | { type: 'live.wrap'; state: 'failed'; message: string; prompt: string; isDefaultPrompt: boolean }
+  // Earlier soundings: the list, one opened again (its wrap follows as a `live.wrap`), and the answer to a removal.
+  | { type: 'live.earlier'; items: EarlierItem[] }
+  | { type: 'live.opened'; name: string; events: SoundingEvent[]; said: boolean }
+  | { type: 'live.removed'; name: string; ok: boolean }
 
 export interface LiveSoundingOptions {
   interpreterName: InterpreterName

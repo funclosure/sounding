@@ -4,6 +4,7 @@ import { summarizeCounters } from '../replay/counters'
 import type { SoundingEvent } from '../core/events'
 import type { Ms } from '../core/types'
 import type { LiveMessage } from '../live/live-sounding'
+import type { EarlierItem } from '../live/earlier'
 import { snapshotOf, transcriptAt, laneSeries, ranked } from './board/model'
 import type { ReadingSnapshot } from './board/model'
 import { createBoard } from './board/board'
@@ -29,6 +30,8 @@ const hint = document.getElementById('hint')!
 const wrapEl = document.getElementById('wrap') as HTMLElement
 const pinnedEl = document.getElementById('pinned') as HTMLElement
 const controls = document.querySelector('.controls') as HTMLElement
+const earlierEl = document.getElementById('earlier') as HTMLElement
+const earlierBtn = document.getElementById('earlierbtn') as HTMLButtonElement
 const scrim = document.getElementById('scrim') as HTMLElement
 const sheetRoot = document.getElementById('sheet') as HTMLElement
 const grab = document.getElementById('grab') as HTMLElement
@@ -242,6 +245,7 @@ function finish(statusText: string, opts?: { keepStatusClass?: boolean; keepSock
 // — before a session starts, or after one has surfaced.
 function syncCtxOpenVisibility() {
   ctxOpenBtn.hidden = state !== 'idle'
+  earlierBtn.hidden = state !== 'idle'
 }
 
 // Rebuilds both chart renderers (sheet + desktop panel) from every reading
@@ -397,6 +401,7 @@ function renderWrap() {
   const head = `<p class="wl">${WRAP_HEADS[lens] ?? WRAP_HEADS.heard}</p>`
   const others = `${opt('angle', 'hear it differently', 'The same talk, read another way.')}`
   const fresh = opt('fresh', 'start fresh', 'Clear the board and listen from nothing.')
+    + (currentName ? (confirming === currentName ? opt('remove', 'really remove?', 'Tap again to move it to the Trash.') : opt('remove', 'remove it', 'Move this sounding to the Trash.')) : '')
   if (wrap.state === 'writing') wrapEl.innerHTML = head
   else if (wrap.state === 'done') {
     const said = wrapHtml(wrap.text)
@@ -498,8 +503,13 @@ wrapEl.addEventListener('click', (e) => {
   if (act === 'again') { written.delete(lens); return readAs(lens) }
   if (act === 'default') { lens = 'heard'; written.delete('heard'); return sendWrap({ type: 'wrap-prompt', text: '' }) }
   if (act === 'fresh') return void start()
+  if (act === 'remove' && currentName) {
+    if (confirming !== currentName) { confirming = currentName; return renderWrap() }
+    confirming = null
+    return tell({ type: 'remove', name: currentName })
+  }
   if (act === 'note' && wrap?.state === 'done') {
-    const title = `Sounding · ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
+    const title = `Sounding · ${(dateOf(currentName) ?? new Date()).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
     const says = el.querySelector('span') ?? el
     void navigator.clipboard.writeText(soundingNote({ title, marks: lastMarkLabels(), wrap: wrap.text })).then(() => { says.textContent = 'Copied.' }, () => { says.textContent = 'Copying is blocked here: select the text instead.' })
   }
@@ -594,6 +604,166 @@ function clearEnding() {
   dots.gather(false)
 }
 
+// ---- earlier soundings: listed, opened again as they ended, and removed (to the Trash, on the server's machine).
+// The name of the sounding on the board, once it is a saved one.
+let currentName: string | null = null
+let earlierOpen = false
+let earlierItems: EarlierItem[] | null = null
+let earlierFailed = false
+// the sounding a first tap on "remove" named; the second tap removes it
+let confirming: string | null = null
+
+const dateOf = (name: string | null): Date | null => {
+  const m = name && /^live-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\./.exec(name)
+  return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null
+}
+const whenOf = (name: string): string => dateOf(name)?.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) ?? name
+
+// Between soundings the page talks to the server on the ended sounding's socket if it is still open, or on one opened for the purpose.
+let idleConnecting: Promise<WebSocket> | null = null
+function idleSocket(): Promise<WebSocket> {
+  if (wrapWs && wrapWs.readyState === WebSocket.OPEN) return Promise.resolve(wrapWs)
+  if (idleConnecting) return idleConnecting
+  const mine = gen
+  const p = new Promise<WebSocket>((resolve, reject) => {
+    const socket = new WebSocket(liveUrl)
+    socket.onopen = () => {
+      if (mine !== gen || state !== 'idle') { socket.close(); return reject(new Error('a sounding has started')) }
+      wrapWs = socket
+      resolve(socket)
+    }
+    socket.onerror = () => reject(new Error('cannot reach the server'))
+    socket.onmessage = (ev) => {
+      if (mine !== gen || wrapWs !== socket) return
+      try { onMessage(JSON.parse(ev.data as string)) } catch (e) { console.error(e) }
+    }
+  })
+  idleConnecting = p
+  const done = () => { if (idleConnecting === p) idleConnecting = null }
+  p.then(done, done)
+  return p
+}
+function tell(msg: { type: 'earlier' } | { type: 'open' | 'remove'; name: string }) {
+  idleSocket().then((s) => s.send(JSON.stringify(msg)), () => { earlierFailed = true; renderEarlier() })
+}
+
+function renderEarlier() {
+  earlierEl.hidden = !earlierOpen
+  if (!earlierOpen) { earlierEl.innerHTML = ''; return }
+  const row = (it: EarlierItem) => `<li${it.name === currentName ? ' aria-current="true"' : ''}><button type="button" class="opt" data-open="${escapeHtml(it.name)}"><b>${escapeHtml(whenOf(it.name))} · ${fmt(it.durationMs)}</b><span>${it.marks.length ? escapeHtml(it.marks.join(', ')) : it.said ? 'nothing stood out' : 'nothing was said'}</span></button><button type="button" class="act quiet" data-remove="${escapeHtml(it.name)}">${confirming === it.name ? 'really remove?' : 'remove'}</button></li>`
+  const body = earlierFailed ? '<p class="quiet">The server cannot be reached.</p>'
+    : !earlierItems ? '<p class="quiet">…</p>'
+    : !earlierItems.length ? '<p class="quiet">Nothing saved yet.</p>'
+    : `<ul>${earlierItems.map(row).join('')}</ul>`
+  earlierEl.innerHTML = `<p class="wl">earlier soundings</p>${body}<div class="acts"><button type="button" class="act quiet" data-act="close">close</button></div>`
+}
+
+/** Everything a sounding put on the page, taken off again. The page stays idle. */
+function clearPage() {
+  replaying = false
+  events.length = 0
+  readings.length = 0
+  headT = 0
+  shownT = 0
+  lastShown = null
+  lastBuildT = 0
+  seenLabelIds.clear()
+  labelOf.clear()
+  lit = null
+  renaming = null
+  clearUndo()
+  wrap = null
+  wrapRevealed.clear()
+  written.clear()
+  awaiting = null
+  wrapEditing = false
+  lens = 'heard'
+  lensOpen = false
+  heardText = ''
+  confirming = null
+  clearEnding()
+  contextSeeds = []
+  carried = []
+  contextText = broughtText
+  pinnedEl.hidden = true
+  board.setLit(null)
+  lanes.setLit(null)
+  lanesD.setLit(null)
+  board.clearGhosts()
+  board.reset()
+  heard.clear()
+  const empty = transcriptAt([], 0)
+  transcript.render(empty, true)
+  transcriptD.render(empty, true)
+  lanes.build([], 1)
+  lanes.head(0)
+  lanesD.build([], 1)
+  lanesD.head(0)
+  counters.textContent = ''
+  clockEl.textContent = '0:00'
+  for (const box of [surfacedBox, surfacedBoxD]) { box.classList.remove('on'); box.innerHTML = '' }
+  screen.classList.remove('slack', 'surfaced')
+}
+
+/** An earlier sounding, put back on the board as it ended: gathered, with its wrap on the way, and every choice a fresh ending has. */
+function showEarlier(m: Extract<LiveMessage, { type: 'live.opened' }>) {
+  if (state !== 'idle') return
+  earlierOpen = false
+  renderEarlier()
+  clearPage()
+  for (const e of m.events) {
+    events.push(e)
+    headT = e.t
+    if (e.type === 'reading.changed') {
+      const snap = snapshotOf(e)
+      readings.push(snap)
+      for (const mk of snap.marks) labelOf.set(mk.id, mk.label)
+    }
+  }
+  currentName = m.name
+  ended = true
+  const s = readings.at(-1) ?? null
+  if (s) board.apply(s, { instant: true })
+  board.gather({ instant: true })
+  lastShown = s
+  const tm = transcriptAt(events, headT)
+  transcript.render(tm, true)
+  transcriptD.render(tm, true)
+  clockEl.textContent = fmt(headT)
+  setState(`from ${whenOf(m.name)}`, false)
+  showSurfaced()
+  // its wrap follows on the same socket: the saved one, or a new one if it never had any
+  if (m.said) { awaiting = 'heard'; wrap = { state: 'writing' } }
+  renderWrap()
+  renderHint()
+}
+
+earlierBtn.addEventListener('click', () => {
+  if (state !== 'idle') return
+  layout.closeContext()
+  earlierOpen = !earlierOpen
+  confirming = null
+  earlierItems = null
+  earlierFailed = false
+  renderEarlier()
+  if (earlierOpen) tell({ type: 'earlier' })
+})
+earlierEl.addEventListener('click', (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-open], [data-remove], [data-act]')
+  if (!el) return
+  if (el.dataset.act === 'close') { earlierOpen = false; confirming = null; return renderEarlier() }
+  if (el.dataset.open) return tell({ type: 'open', name: el.dataset.open })
+  const name = el.dataset.remove
+  if (!name) return
+  if (confirming !== name) { confirming = name; return renderEarlier() }
+  confirming = null
+  tell({ type: 'remove', name })
+})
+earlierEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { earlierOpen = false; confirming = null; renderEarlier() }
+  e.stopPropagation()
+})
+
 function onMessage(m: LiveMessage) {
   if (m.type === 'live.heard') {
     if (replaying || state !== 'live') return
@@ -612,7 +782,8 @@ function onMessage(m: LiveMessage) {
       // Same reasoning: finish() returns from a scrub before doing anything
       // else, so the surfaced chart below reflects every reading received
       // during the scrub, not just what was shown live.
-      finish(`saved ${(m.message ?? '').split('/').pop()}`, { keepSocket: wrap !== null })
+      currentName = (m.message ?? '').split('/').pop() || null
+      finish(`saved ${currentName ?? ''}`, { keepSocket: wrap !== null })
       showSurfaced()
     } else if (m.state === 'warning') {
       console.warn(`live: ${m.message ?? ''}`)
@@ -624,6 +795,12 @@ function onMessage(m: LiveMessage) {
     return
   }
   if (m.type === 'live.wrap') return onWrap(m)
+  if (m.type === 'live.earlier') { earlierItems = m.items; earlierFailed = false; return renderEarlier() }
+  if (m.type === 'live.opened') return showEarlier(m)
+  if (m.type === 'live.removed') {
+    if (m.ok && m.name === currentName) { clearPage(); currentName = null; setState('removed', false); renderWrap(); renderHint() }
+    return
+  }
   events.push(m)
   headT = m.t
   if (m.type === 'reading.changed') {
@@ -823,6 +1000,10 @@ async function start(carry = false) {
   clearUndo()
   clearWrap()
   clearEnding()
+  currentName = null
+  confirming = null
+  earlierOpen = false
+  renderEarlier()
   board.setLit(null)
   lanes.setLit(null)
   lanesD.setLit(null)
