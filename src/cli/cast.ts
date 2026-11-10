@@ -5,6 +5,7 @@ import { loadDotEnv } from './env'
 import { join, dirname, basename } from 'node:path'
 import { transcribeRecording } from '../providers/whisper-transcription'
 import { ClaudeExtractionInterpreter } from '../providers/claude-extraction'
+import { ClaudeSubscriptionInterpreter } from '../providers/claude-subscription'
 import { GeminiAudioInterpreter } from '../providers/gemini-audio'
 import { makeAudioSource } from '../providers/audio-slicer'
 import { EmbeddingIdentityResolver } from '../providers/embedding-identity'
@@ -19,7 +20,7 @@ import type { FixtureScript } from '../replay/fixture'
 import type { Interpreter } from '../interpret/port'
 import type { SoundingEvent } from '../core/events'
 
-const INTERPRETERS = ['recurrence', 'claude', 'gemini'] as const
+const INTERPRETERS = ['recurrence', 'claude', 'claude-sub', 'gemini'] as const
 type InterpreterName = (typeof INTERPRETERS)[number]
 
 export interface CastArgs {
@@ -55,7 +56,7 @@ export function parseCastArgs(argv: string[]): CastArgs {
     else throw new Error(`unrecognized argument ${a}`)
   }
   if (!args.audioPath || !args.interpreter) {
-    throw new Error('usage: npm run cast -- <audio-file> -i <recurrence|claude|gemini> [--model-path <ggml>] [--threshold <n>] [--context <file>]')
+    throw new Error('usage: npm run cast -- <audio-file> -i <recurrence|claude|claude-sub|gemini> [--model-path <ggml>] [--threshold <n>] [--context <file>]')
   }
   if (args.contextPath && !existsSync(args.contextPath)) {
     throw new Error(`--context file not found: ${args.contextPath}`)
@@ -78,6 +79,7 @@ export async function loadOrTranscribe(
 
 function makeInterpreter(name: InterpreterName): Interpreter {
   if (name === 'claude') return new ClaudeExtractionInterpreter()
+  if (name === 'claude-sub') return new ClaudeSubscriptionInterpreter()
   if (name === 'gemini') return new GeminiAudioInterpreter()
   return new RecurrenceInterpreter()
 }

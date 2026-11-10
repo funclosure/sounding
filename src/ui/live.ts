@@ -110,6 +110,8 @@ const liveUrl = portParam
 // preserves the old page's ability to override the server's default (`-i`)
 // without adding UI the brief doesn't call for.
 const interpParam = new URLSearchParams(location.search).get('interp')
+// Same for the transcriber: ?transcriber=gemini|whisper overrides the server's default for this tab.
+const transcriberParam = new URLSearchParams(location.search).get('transcriber')
 let ws: WebSocket | null = null
 let audio: AudioRig | null = null
 // Set as soon as getUserMedia resolves inside setupAudio, cleared once setupAudio
@@ -558,8 +560,9 @@ async function start() {
       return
     }
     audio = a
-    const startMsg: { type: 'start'; interpreter?: string; context?: string } = { type: 'start' }
+    const startMsg: { type: 'start'; interpreter?: string; transcriber?: string; context?: string } = { type: 'start' }
     if (interpParam) startMsg.interpreter = interpParam
+    if (transcriberParam) startMsg.transcriber = transcriberParam
     const ctx = contextText.trim()
     if (ctx) startMsg.context = ctx
     socket.send(JSON.stringify(startMsg))

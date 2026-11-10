@@ -14,8 +14,8 @@ import { isPaidInterpreter } from '../src/devserver/paths'
 import { LIVE_SOCKET_PATH } from '../src/live/socket-path'
 
 describe('parseServeArgs', () => {
-  it('defaults to port 4490, API off, recurrence, no extra origins', () => {
-    expect(parseServeArgs([])).toEqual({ port: 4490, allowOrigins: [], allowApi: false, interpreter: 'recurrence', lang: 'en-US' })
+  it('defaults to port 4490, API off, and the two providers that spend nothing', () => {
+    expect(parseServeArgs([])).toEqual({ port: 4490, allowOrigins: [], allowApi: false, interpreter: 'claude-sub', transcriber: 'whisper', lang: 'en-US' })
   })
   it('collects repeated --allow-origin and turns API use on only with --allow-api', () => {
     const a = parseServeArgs(['--allow-origin', 'https://mini.example.ts.net:5443', '--allow-origin', 'http://localhost:4490', '--allow-api'])
@@ -83,6 +83,7 @@ describe('the API switch', () => {
     expect(isPaidInterpreter('gemini')).toBe(true)
     expect(isPaidInterpreter('claude')).toBe(true)
     expect(isPaidInterpreter('recurrence')).toBe(false)
+    expect(isPaidInterpreter('claude-sub')).toBe(false)
   })
 })
 
@@ -99,7 +100,7 @@ describe('startServer (one origin: pages, logs, API, live socket)', () => {
     writeFileSync(join(cwd, 'dist', 'live.html'), '<!doctype html>live')
     writeFileSync(join(cwd, 'soundings', 'a.recurrence.jsonl'), '{}\n')
     writeFileSync(join(cwd, '.env'), 'SECRET=1')
-    server = startServer({ port: 0, allowOrigins: ['https://mini.example.ts.net:5443'], allowApi: false, interpreter: 'recurrence', lang: 'en-US' }, cwd)
+    server = startServer({ port: 0, allowOrigins: ['https://mini.example.ts.net:5443'], allowApi: false, interpreter: 'recurrence', transcriber: 'whisper', lang: 'en-US' }, cwd)
     await new Promise<void>((r) => server.once('listening', () => r()))
     base = `127.0.0.1:${(server.address() as AddressInfo).port}`
   })

@@ -24,7 +24,7 @@ Guidance:
 - confidence (0 to 1): how sure you are the concept is real and correctly labeled. Be honest: a missing candidate costs less than a wrong one.
 - Return 0-8 candidates. Fewer, stronger candidates beat padding. Returning zero is fine for filler.`
 
-const CANDIDATES_SCHEMA = {
+export const CANDIDATES_SCHEMA = {
   type: 'object',
   properties: {
     candidates: {

@@ -10,6 +10,8 @@ import { DEFAULT_SALIENCE_CONFIG } from '../salience/config'
 import { EmbeddingIdentityResolver } from '../providers/embedding-identity'
 import { RecurrenceInterpreter } from '../interpret/recurrence'
 import { ClaudeExtractionInterpreter } from '../providers/claude-extraction'
+import { ClaudeSubscriptionInterpreter } from '../providers/claude-subscription'
+import type { InterpreterName } from '../devserver/paths'
 import { GeminiAudioInterpreter } from '../providers/gemini-audio'
 import { summarizeCounters } from '../replay/counters'
 import type { Interpreter } from '../interpret/port'
@@ -19,7 +21,7 @@ import { heardWords } from './heard-words'
 import type { Transcriber } from './transcriber'
 import type { Clock } from './clock'
 
-export type InterpreterName = 'gemini' | 'claude' | 'recurrence'
+export type { InterpreterName }
 export type LiveMessage =
   | SoundingEvent
   | { type: 'live.heard'; t: Ms; words: string[] }
@@ -37,6 +39,7 @@ export interface LiveSoundingOptions {
 
 function makeInterpreter(name: InterpreterName): Interpreter {
   if (name === 'claude') return new ClaudeExtractionInterpreter()
+  if (name === 'claude-sub') return new ClaudeSubscriptionInterpreter()
   if (name === 'gemini') return new GeminiAudioInterpreter()
   return new RecurrenceInterpreter()
 }

@@ -1,7 +1,10 @@
 // The always-on server: the built pages, the replay API and the live socket on
 // one origin, so a tailnet proxy (tailscale serve) can put all of it behind a
 // single https address. `npm run build && npm run serve`.
-//   npm run serve -- [--port 4490] [--allow-origin <https://host:port>]... [--allow-api] [-i <interpreter>] [--lang <code|auto>]
+//   npm run serve -- [--port 4490] [--allow-origin <https://host:port>]... [--allow-api] [-i <interpreter>] [--transcriber gemini|whisper] [--lang <code|auto>]
+//
+// Defaults are the ones that spend nothing: local whisper transcription and
+// Claude through the Claude Code login (claude-sub).
 //
 // API use is OFF unless --allow-api: .env isn't loaded, and the paid
 // interpreters/transcribers refuse to start (see src/cli/env.ts). Child
@@ -12,8 +15,8 @@ import { extname, join, resolve, sep } from 'node:path'
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws'
 import { apiAllowed, loadDotEnv } from '../cli/env'
 import { apiMiddleware } from '../devserver/api'
-import { handleLiveConnection, isAllowedOrigin, type Args as LiveArgs } from '../live/server'
-import type { InterpreterName } from '../live/live-sounding'
+import { handleLiveConnection, isAllowedOrigin, isTranscriberName, TRANSCRIBERS, type Args as LiveArgs, type TranscriberName } from '../live/server'
+import { INTERPRETERS, isInterpreterName, type InterpreterName } from '../devserver/paths'
 import { LIVE_SOCKET_PATH } from '../live/socket-path'
 
 export interface ServeArgs {
@@ -21,13 +24,12 @@ export interface ServeArgs {
   allowOrigins: string[]
   allowApi: boolean
   interpreter: InterpreterName
+  transcriber: TranscriberName
   lang: string
 }
 
-const INTERPRETERS: readonly InterpreterName[] = ['gemini', 'claude', 'recurrence']
-
 export function parseServeArgs(argv: string[]): ServeArgs {
-  const a: ServeArgs = { port: 4490, allowOrigins: [], allowApi: false, interpreter: 'recurrence', lang: 'en-US' }
+  const a: ServeArgs = { port: 4490, allowOrigins: [], allowApi: false, interpreter: 'claude-sub', transcriber: 'whisper', lang: 'en-US' }
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i], next = argv[i + 1]
     if (v === '--port') { a.port = Number(next); if (!Number.isInteger(a.port) || a.port <= 0) throw new Error('--port needs a positive integer'); i++ }
@@ -36,7 +38,8 @@ export function parseServeArgs(argv: string[]): ServeArgs {
       a.allowOrigins.push(next); i++
     }
     else if (v === '--allow-api') a.allowApi = true
-    else if (v === '-i') { if (!INTERPRETERS.includes(next as InterpreterName)) throw new Error(`-i must be ${INTERPRETERS.join('|')}`); a.interpreter = next as InterpreterName; i++ }
+    else if (v === '-i') { if (!isInterpreterName(next)) throw new Error(`-i must be ${INTERPRETERS.join('|')}`); a.interpreter = next; i++ }
+    else if (v === '--transcriber') { if (!isTranscriberName(next)) throw new Error(`--transcriber must be ${TRANSCRIBERS.join('|')}`); a.transcriber = next; i++ }
     else if (v === '--lang') { if (!next) throw new Error('--lang needs a code (or "auto")'); a.lang = next; i++ }
     else throw new Error(`unknown argument ${v}`)
   }
@@ -112,7 +115,7 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, roots: { dist: s
 
 export function startServer(args: ServeArgs, cwd = process.cwd()): ReturnType<typeof createServer> {
   const roots = { dist: join(cwd, 'dist'), soundings: join(cwd, 'soundings') }
-  const live: LiveArgs = { interpreter: args.interpreter, port: args.port, fakeTranscriber: false, speed: 1, headless: false, lang: args.lang }
+  const live: LiveArgs = { interpreter: args.interpreter, transcriber: args.transcriber, port: args.port, fakeTranscriber: false, speed: 1, headless: false, lang: args.lang }
   const wss = new WebSocketServer({ noServer: true })
   wss.on('connection', (ws: WsSocket) => handleLiveConnection(ws, live))
 
@@ -141,7 +144,7 @@ if (isDirectRun) {
   const server = startServer(args)
   server.on('listening', () => {
     const origins = args.allowOrigins.length ? `, also allowing ${args.allowOrigins.join(' ')}` : ''
-    console.log(`sounding serving on http://127.0.0.1:${args.port}${origins} — interpreter ${args.interpreter}, API use ${apiAllowed() ? 'ON (--allow-api)' : 'off'}`)
+    console.log(`sounding serving on http://127.0.0.1:${args.port}${origins} — interpreter ${args.interpreter}, transcriber ${args.transcriber}, API use ${apiAllowed() ? 'ON (--allow-api)' : 'off'}`)
   })
   server.on('error', (e) => { console.error(e.message); process.exit(1) })
 }
