@@ -28,6 +28,7 @@ const big = document.getElementById('big') as HTMLButtonElement
 const hint = document.getElementById('hint')!
 const wrapEl = document.getElementById('wrap') as HTMLElement
 const pinnedEl = document.getElementById('pinned') as HTMLElement
+const controls = document.querySelector('.controls') as HTMLElement
 const scrim = document.getElementById('scrim') as HTMLElement
 const sheetRoot = document.getElementById('sheet') as HTMLElement
 const grab = document.getElementById('grab') as HTMLElement
@@ -95,10 +96,6 @@ const layout = {
   },
   closeContext() {
     contextPop.close()
-  },
-  onSurfaced() {
-    // On a phone the sheet would rise over the gathered board and the wrap; the chart stays one tap away there.
-    if (mq.matches) this.showChart()
   },
 }
 mq.addEventListener('change', () => {
@@ -281,7 +278,7 @@ function showSurfaced() {
   surfacedBoxD.innerHTML = html
   surfacedBox.classList.add('on')
   surfacedBoxD.classList.add('on')
-  layout.onSurfaced()
+  // The chart stays closed: the gathered column already says what stood out, and the chart is one tap (or C) away.
 }
 
 // ---- corrections: the speaker dismisses or renames the followed mark from
@@ -295,6 +292,7 @@ const UNDO_MS = 8000
 const canCorrect = () => state === 'live' && !replaying && !!ws && ws.readyState === WebSocket.OPEN
 
 function renderHint() {
+  controls.classList.toggle('after', canCarry())
   if (renaming && renaming === lit) {
     hint.innerHTML = `<form class="rename"><label>rename <input name="label" maxlength="60" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(labelOf.get(lit) ?? '')}" /></label> · <button type="button" data-act="cancel">cancel</button></form>`
     const input = hint.querySelector('input')!
@@ -311,7 +309,7 @@ function renderHint() {
     hint.innerHTML = `dismissed <b class="gone">${escapeHtml(undo.label)}</b> · <button type="button" data-act="undo">undo</button>`
     return
   }
-  // after a sounding the circle carries on from it, and says so
+  // after a sounding the circle carries on from it, and says so right under itself
   if (canCarry()) {
     const q = lens === 'question' && wrap?.state === 'done'
     hint.innerHTML = q
@@ -349,7 +347,11 @@ const canCarry = () => state === 'idle' && ended && !replaying && lastMarkLabels
 /** How far apart the words of a fresh wrap arrive (ms); the CSS multiplies it by each word's place. */
 const WORD_EVERY_MS = 45
 // the text already shown once: a wrap comes word by word only the first time it is seen
-let wrapRevealed: string | null = null
+const wrapRevealed = new Set<string>()
+// every reading already written for this sounding, by lens: going back to one shows it again, as it was
+const written = new Map<string, string>()
+// the lens of the wrap being waited for; a reply nobody is waiting for any more is only kept, not shown
+let awaiting: string | null = null
 
 /** Plain text with "- " bullets → paragraphs and lists, every word in a span numbered in reading order. */
 function wrapHtml(text: string): { html: string; words: number } {
@@ -398,8 +400,8 @@ function renderWrap() {
   if (wrap.state === 'writing') wrapEl.innerHTML = head
   else if (wrap.state === 'done') {
     const said = wrapHtml(wrap.text)
-    const arriving = wrapRevealed !== wrap.text
-    wrapRevealed = wrap.text
+    const arriving = !wrapRevealed.has(wrap.text)
+    wrapRevealed.add(wrap.text)
     wrapEl.style.setProperty('--word-every', `${WORD_EVERY_MS}ms`)
     wrapEl.innerHTML = `${head}<div class="said${arriving ? ' arriving' : ''}">${said.html}</div><div class="next ruled${arriving ? ' arriving' : ''}" style="--i:${said.words}">${others}${opt('note', 'copy as a note', 'The words and the wrap, ready to paste.')}${fresh}</div>`
   }
@@ -408,11 +410,18 @@ function renderWrap() {
 
 function onWrap(m: Extract<LiveMessage, { type: 'live.wrap' }>) {
   if (m.state === 'writing') {
+    // the sounding's own first wrap announces itself; a rewrite was already marked as awaited when it was asked for
+    if (!wrap) awaiting = 'heard'
+    if (awaiting === null) return
     wrap = { state: 'writing' }
   } else {
-    wrap = m
+    const key = awaiting
     wrapPrompt = { text: m.prompt, isDefault: m.isDefaultPrompt }
-    if (m.state === 'done' && lens === 'heard') heardText = m.text
+    // the speaker went back to a reading they already had while this one was being written
+    if (key === null) return
+    awaiting = null
+    if (m.state === 'done') { written.set(key, m.text); if (key === 'heard') heardText = m.text }
+    wrap = m
   }
   wrapEditing = false
   dots.gather(wrap.state === 'writing')
@@ -425,6 +434,7 @@ function sendWrap(msg: { type: 'rewrap'; text?: string } | { type: 'wrap-prompt'
   lensOpen = false
   if (wrapWs && wrapWs.readyState === WebSocket.OPEN) {
     wrapWs.send(JSON.stringify(msg))
+    awaiting = lens
     wrap = { state: 'writing' }
   } else if (wrapPrompt) {
     wrap = { state: 'failed', message: 'the connection to the server has closed', prompt: wrapPrompt.text, isDefaultPrompt: wrapPrompt.isDefault }
@@ -437,6 +447,16 @@ function sendWrap(msg: { type: 'rewrap'; text?: string } | { type: 'wrap-prompt'
 /** The same sounding, read with another instruction; "what I heard" is the saved one. Nothing is saved by this. */
 function readAs(key: string) {
   lens = key
+  const had = written.get(key)
+  if (had !== undefined && wrapPrompt) {
+    awaiting = null
+    wrapEditing = false
+    lensOpen = false
+    wrap = { state: 'done', text: had, prompt: wrapPrompt.text, isDefaultPrompt: wrapPrompt.isDefault }
+    dots.gather(false)
+    renderWrap()
+    return renderHint()
+  }
   const text = key === 'own' ? ownPrompt : LENSES.find((l) => l.key === key)?.prompt
   sendWrap(text ? { type: 'rewrap', text } : { type: 'rewrap' })
 }
@@ -445,7 +465,9 @@ function clearWrap() {
   if (wrapWs && wrapWs.readyState === WebSocket.OPEN) wrapWs.close()
   wrapWs = null
   wrap = null
-  wrapRevealed = null
+  wrapRevealed.clear()
+  written.clear()
+  awaiting = null
   wrapEditing = false
   lens = 'heard'
   lensOpen = false
@@ -468,12 +490,13 @@ wrapEl.addEventListener('click', (e) => {
   if (act === 'once') {
     const text = (wrapEl.querySelector('textarea')?.value ?? '').trim()
     if (!text) return
+    if (text !== ownPrompt) written.delete('own')
     ownPrompt = text
     return readAs('own')
   }
   if (act === 'cancel') { wrapEditing = false; return renderWrap() }
-  if (act === 'again') return readAs(lens)
-  if (act === 'default') { lens = 'heard'; return sendWrap({ type: 'wrap-prompt', text: '' }) }
+  if (act === 'again') { written.delete(lens); return readAs(lens) }
+  if (act === 'default') { lens = 'heard'; written.delete('heard'); return sendWrap({ type: 'wrap-prompt', text: '' }) }
   if (act === 'fresh') return void start()
   if (act === 'note' && wrap?.state === 'done') {
     const title = `Sounding · ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
@@ -484,6 +507,7 @@ wrapEl.addEventListener('click', (e) => {
 wrapEl.addEventListener('submit', (e) => {
   e.preventDefault()
   lens = 'heard'
+  written.delete('heard') // new saved instructions: the plain reading is written again
   sendWrap({ type: 'wrap-prompt', text: wrapEl.querySelector('textarea')?.value ?? '' })
 })
 wrapEl.addEventListener('keydown', (e) => {
@@ -803,6 +827,7 @@ async function start(carry = false) {
   lanes.setLit(null)
   lanesD.setLit(null)
   hint.textContent = ''
+  controls.classList.remove('after')
   // Each start() gets a fresh ReadingDynamics, whose concept ids are always
   // `c1, c2, …` counting up from one — so ids *recur* every session, and a
   // stale ghost left over from a previous session could get promoted by an

@@ -272,6 +272,9 @@ html.dark {
 .pinned { position: absolute; z-index: 3; top: 6px; left: 0; right: 0; margin: 0 auto; width: min(31rem, calc(100% - 48px)); text-align: center; font-family: var(--serif); font-size: 14.5px; line-height: 1.5; color: var(--ink-quiet); pointer-events: none; text-shadow: 0 0 3px var(--paper), 0 0 8px var(--paper); animation: wrap-in 900ms ease both; }
 .pinned[hidden] { display: none; }
 .hint .go { color: var(--ink); }
+/* After a sounding the circle's own line comes first, right under it; bringing context steps down. */
+.controls.after .hint { order: 1; }
+.controls.after .ctxopen { order: 2; }
 .wrap textarea { display: block; width: 100%; min-height: 150px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: transparent; color: var(--ink); font-family: var(--serif); font-size: 15px; line-height: 1.55; }
 .wrap textarea:focus-visible { outline: none; border-color: var(--whisper); box-shadow: 0 0 0 3px var(--halo); }
 .wrap .note { font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink-quiet); margin: 10px 0 0; }
