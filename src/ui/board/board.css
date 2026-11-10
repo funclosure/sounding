@@ -239,9 +239,11 @@ html.dark {
 .screen > .controls { grid-row: 3; }
 /* No card: the wrap is written on the field itself, under the column the marks gathered into (--wrap-top, set from the board).
    Placed absolutely in the board's cell, so however long it runs it scrolls inside the cell instead of stretching the row. */
-.screen > .wrap { grid-row: 2 / 3; grid-column: 1 / 2; }
+.screen > .wrap, .screen > .pinned { grid-row: 2 / 3; grid-column: 1 / 2; }
 .wrap { position: absolute; z-index: 5; top: var(--wrap-top, 22vh); left: 0; right: 0; margin-inline: auto; width: min(31rem, calc(100% - 48px)); max-height: calc(100% - var(--wrap-top, 22vh) - 6px); overflow-y: auto; user-select: text; -webkit-user-select: text; text-shadow: 0 0 3px var(--paper), 0 0 8px var(--paper), 0 0 14px var(--paper); transition: top 0.9s ease; animation: wrap-in 1100ms ease both; }
-.wrap .said { animation: wrap-in 1100ms ease both; }
+/* A fresh wrap comes one word at a time, in reading order (--i is the word's place); the actions follow the last word. */
+.wrap .arriving .w, .wrap .said.arriving li::before, .wrap .next.arriving { opacity: 0; animation: word-in 520ms ease forwards; animation-delay: calc(var(--i) * var(--word-every, 45ms)); }
+@keyframes word-in { from { opacity: 0; } to { opacity: 1; } }
 /* Changing the instructions is a form, and a form gets its sheet of paper back, over the middle of the board. */
 .wrap.editing { top: 10px; bottom: 10px; margin-block: auto; height: fit-content; width: min(34rem, calc(100% - 36px)); max-height: calc(100% - 20px); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px 14px; text-shadow: none; }
 @keyframes wrap-in { from { opacity: 0; transform: translateY(8px); } }
@@ -257,19 +259,35 @@ html.dark {
 .wrap .act.quiet { color: var(--ink-quiet); border-bottom-color: transparent; font-size: 12px; margin: 0; }
 .wrap .act:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
 .wrap form { margin: 0; }
+/* What can follow the wrap: each choice is its name and, beside it, a line saying what it will do. */
+.wrap .next { display: grid; gap: 9px; text-shadow: none; user-select: none; -webkit-user-select: none; }
+.wrap .next.ruled { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.wrap .opt { all: unset; cursor: pointer; display: grid; grid-template-columns: 10.5rem minmax(0, 1fr); align-items: baseline; gap: 0 12px; border-radius: 4px; }
+.wrap .opt b { justify-self: start; font-family: var(--mono); font-weight: 400; font-size: 12.5px; letter-spacing: 0.03em; color: var(--ink); border-bottom: 1px solid var(--light); }
+.wrap .opt span { font-family: var(--serif); font-size: 13.5px; line-height: 1.45; color: var(--ink-quiet); }
+.wrap .opt:hover span { color: var(--ink); }
+.wrap .opt:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); }
+.wrap .opt[aria-pressed="false"] b { color: var(--ink-quiet); border-bottom-color: transparent; }
+/* A question carried into the next sounding stays at the top of the board while it is answered. */
+.pinned { position: absolute; z-index: 3; top: 6px; left: 0; right: 0; margin: 0 auto; width: min(31rem, calc(100% - 48px)); text-align: center; font-family: var(--serif); font-size: 14.5px; line-height: 1.5; color: var(--ink-quiet); pointer-events: none; text-shadow: 0 0 3px var(--paper), 0 0 8px var(--paper); animation: wrap-in 900ms ease both; }
+.pinned[hidden] { display: none; }
+.hint .go { color: var(--ink); }
 .wrap textarea { display: block; width: 100%; min-height: 150px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: transparent; color: var(--ink); font-family: var(--serif); font-size: 15px; line-height: 1.55; }
 .wrap textarea:focus-visible { outline: none; border-color: var(--whisper); box-shadow: 0 0 0 3px var(--halo); }
 .wrap .note { font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink-quiet); margin: 10px 0 0; }
 @media (min-width: 720px) {
   /* the base rule above comes later in the file than the desktop grid, so the field's column has to be restated here too */
   .screen > .field, .screen > .wrap, .screen > .heard { grid-column: 2; }
-  .screen > .heard, .screen > .wrap { grid-column: 2 / 3; }
+  .screen > .heard, .screen > .wrap, .screen > .pinned { grid-column: 2 / 3; }
 }
 @media (max-width: 719.98px) {
   .wrap .said { font-size: 15px; line-height: 1.55; }
+  .wrap .opt { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .hint .long { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .wrap, .wrap .said { animation: none; transition: none; }
+  .wrap { animation: none; transition: none; }
+  .wrap .arriving .w, .wrap .said.arriving li::before, .wrap .next.arriving { opacity: 1; animation: none; }
   .field.gathered .mark { transition: none; }
 }
 

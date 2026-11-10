@@ -134,14 +134,15 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
   // adjust the instructions and have the same sounding wrapped again.
   let ended: { material: WrapMaterial; logPath: string; writer: WrapWriter } | null = null
   let wrapRun = 0
-  const writeWrap = async () => {
+  /** `once`: instructions for this one writing only (another reading of the same sounding); the saved ones are left alone. */
+  const writeWrap = async (once?: string) => {
     const e = ended
     if (!e) return
     const run = ++wrapRun
     const { prompt, isDefault } = readWrapPrompt(deps.promptDir)
     send({ type: 'live.wrap', state: 'writing' })
     try {
-      const text = await e.writer(prompt, e.material)
+      const text = await e.writer(once || prompt, e.material)
       if (run !== wrapRun) return // a newer request (changed instructions) supersedes this one
       console.log(`wrote ${writeWrapFile(e.logPath, text)}`)
       send({ type: 'live.wrap', state: 'done', text, prompt, isDefaultPrompt: isDefault })
@@ -236,7 +237,10 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       saveWrapPrompt(prompt, deps.promptDir)
       await writeWrap()
     } else if (msg.type === 'rewrap') {
-      await writeWrap()
+      // With `text`: the same sounding read with other instructions, this once. Nothing is saved.
+      const once = msg.text === undefined ? '' : validWrapPrompt(msg.text)
+      if (once === null) { send({ type: 'live.status', state: 'warning', message: `wrap instructions must be text of at most ${WRAP_PROMPT_MAX_CHARS} characters, ignoring` }); return }
+      await writeWrap(once)
     } else if (msg.type === 'context') {
       // A `context` message can race a still-in-flight `start` (the
       // browser drops it as soon as the socket opens, before the session
