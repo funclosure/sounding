@@ -1,14 +1,15 @@
 // Draws the app icon: "Ripples", a still frame of the salience field from
 // funclosure.xyz. An ink source, then two returns, the second fainter, on the
 // site's dot grid (rows one step apart, every other row half a step over) in
-// the day mood. One fixed drawing for every size.
+// the night mood. One fixed drawing for every size.
 //
 //   node scripts/icon.mjs            writes public/icon.svg (rounded) and public/icon-square.svg (full bleed)
 //
 // The PNGs in public/ are icon-square.svg rasterised at 180, 192 and 512 px.
 import { writeFileSync } from 'node:fs'
 
-const PAPER = '#f4f2ec', INK = '#1b1813', QUIET = '#6a6358', LIGHT = '#c9b68a'
+// the site's dark mood: night ground, blue rings, a pale source
+const PAPER = '#16161b', INK = '#e9e4da', QUIET = '#8c867a', LIGHT = '#7884b0'
 const N = 9 // dots across
 const MARGIN = 0.13
 const SIZE = 512
