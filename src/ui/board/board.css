@@ -94,10 +94,14 @@ html.dark {
 .screen.listening .big i { width: 12px; height: 12px; border-radius: 2px; background: var(--ink); }
 @keyframes ring { 0%, 100% { box-shadow: 0 0 0 0 var(--halo) } 50% { box-shadow: 0 0 0 9px transparent } }
 .screen.surfaced .big i { background: var(--whisper); }
-.hint { font-family: var(--mono); font-size: 12px; color: var(--ink-quiet); letter-spacing: 0.03em; text-align: center; min-height: 16px; }
+.hint { font-family: var(--mono); font-size: 12px; color: var(--ink-quiet); letter-spacing: 0.03em; text-align: center; min-height: 20px; line-height: 20px; }
 .hint button { all: unset; cursor: pointer; color: var(--ink); border-bottom: 1px solid var(--whisper); }
 .hint button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
 .hint b { font-weight: 400; color: var(--ink); font-family: var(--serif); font-size: 13.5px; letter-spacing: 0; border-bottom: 1px solid var(--light); }
+.hint b.gone { border-bottom-color: transparent; color: var(--ink-quiet); text-decoration: line-through; text-decoration-color: var(--whisper); }
+.hint .rename { display: inline; margin: 0; }
+.hint input { all: unset; width: min(15em, 46vw); font-family: var(--serif); font-size: 14.5px; letter-spacing: 0; color: var(--ink); text-align: left; border-bottom: 1px solid var(--light); padding: 0 2px 1px; user-select: text; -webkit-user-select: text; cursor: text; }
+.hint input::selection { background: var(--select); }
 .ctxopen { all: unset; cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; color: var(--ink-quiet); border-bottom: 1px solid transparent; transition: color 280ms ease, border-color 280ms ease; }
 .ctxopen:hover { color: var(--ink); border-bottom-color: var(--light); }
 .ctxopen:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }

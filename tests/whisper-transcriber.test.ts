@@ -151,3 +151,14 @@ describe('whisper helpers', () => {
     expect(inferenceForm(new Int16Array(0), { language: 'auto', prompt: 'Anneke' }).get('prompt')).toBe('Anneke')
   })
 })
+
+describe('WhisperTranscriber — vocabulary added mid-session', () => {
+  it('puts a corrected label in the prompt of the following passes, once', async () => {
+    const r = rig({ vocabulary: ['Anneke'], reply: () => '' })
+    await r.connect()
+    r.tr.addVocabulary(['sounding board', 'Anneke'])
+    await r.feed([...audio(1500, 4000), ...audio(1000, 0)])
+    await r.tr.end()
+    expect(r.calls[0].opts.prompt).toBe('Anneke, sounding board. ')
+  })
+})

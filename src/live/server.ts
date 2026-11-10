@@ -30,6 +30,13 @@ function errMsg(e: unknown): string {
 }
 
 const CONTEXT_MAX_CHARS = 4000
+export const LABEL_MAX_CHARS = 60
+/** A corrected label: a non-blank single line within the cap. Returns it trimmed, or null. */
+export function validLabel(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  return s.length > 0 && s.length <= LABEL_MAX_CHARS && !/[\r\n]/.test(s) ? s : null
+}
 /** true only for a validation-worthy string: within the length cap. Doesn't accept undefined — caller checks presence separately. */
 function isValidContext(v: unknown): v is string {
   return typeof v === 'string' && v.length <= CONTEXT_MAX_CHARS
@@ -141,7 +148,7 @@ export function handleLiveConnection(ws: WsSocket, args: Args): void {
   }
   ws.on('message', async (data: Buffer, isBinary: boolean) => {
     if (isBinary) { live?.pushAudio(new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length - (data.length % 2)))); return }
-    let msg: { type?: string; interpreter?: string; transcriber?: unknown; context?: unknown; text?: unknown; conceptId?: unknown }
+    let msg: { type?: string; interpreter?: string; transcriber?: unknown; label?: unknown; context?: unknown; text?: unknown; conceptId?: unknown }
     try { msg = JSON.parse(data.toString('utf8')) } catch { return }
     if (msg.type === 'start' && !live && !starting) {
       let interpreter = args.interpreter
@@ -200,6 +207,19 @@ export function handleLiveConnection(ws: WsSocket, args: Args): void {
       }
       const { label } = await live.follow(raw)
       if (raw !== null && label === null) send({ type: 'live.status', state: 'warning', message: 'unknown concept, let go' })
+    } else if (msg.type === 'dismiss' || msg.type === 'restore' || msg.type === 'rename') {
+      // The speaker's corrections. Whatever changes reaches the page as log
+      // events; only a request that changed nothing gets a warning back.
+      if (!live) return
+      if (typeof msg.conceptId !== 'string') { send({ type: 'live.status', state: 'warning', message: `${msg.type} needs a conceptId, ignoring` }); return }
+      if (msg.type === 'rename') {
+        const label = validLabel(msg.label)
+        if (label === null) { send({ type: 'live.status', state: 'warning', message: `a label must be 1 to ${LABEL_MAX_CHARS} characters on one line, ignoring` }); return }
+        if ((await live.rename(msg.conceptId, label)) === null) send({ type: 'live.status', state: 'warning', message: 'nothing to rename' })
+      } else {
+        const done = msg.type === 'dismiss' ? await live.dismiss(msg.conceptId) : await live.restore(msg.conceptId)
+        if (done === null) send({ type: 'live.status', state: 'warning', message: `nothing to ${msg.type}` })
+      }
     }
   })
   ws.on('close', () => void stop())

@@ -25,6 +25,7 @@ export class SoundingSession {
   private latestT: Ms = 0
   private readonly inFlight = new Set<Promise<void>>()
   private hints: InterpretationHints = {}
+  private followId: string | null = null
 
   constructor(
     private readonly interpreter: Interpreter,
@@ -83,8 +84,72 @@ export class SoundingSession {
     return this.enqueue(() => {
       this.advanceNow(t)
       this.log.append({ type: 'mark.followed', t, conceptId, label })
-      const { follow: _drop, ...rest } = this.hints
-      this.hints = label ? { ...rest, follow: label } : rest
+      this.applyFollow(label ? conceptId : null, label)
+    })
+  }
+
+  private applyFollow(conceptId: string | null, label: string | null): void {
+    const { follow: _drop, ...rest } = this.hints
+    this.hints = label ? { ...rest, follow: label } : rest
+    this.followId = label ? conceptId : null
+  }
+
+  /** Lets go of the followed mark when it is the one that just went away. */
+  private unfollowIf(t: Ms, conceptId: string): void {
+    if (this.followId !== conceptId) return
+    this.log.append({ type: 'mark.followed', t, conceptId: null, label: null })
+    this.applyFollow(null, null)
+  }
+
+  private setList<K extends 'dismissed' | 'corrections'>(key: K, list: NonNullable<InterpretationHints[K]>): void {
+    const { [key]: _drop, ...rest } = this.hints
+    this.hints = (list.length ? { ...rest, [key]: list } : rest) as InterpretationHints
+  }
+
+  /** The speaker dismisses a mark as wrong. Resolves to its label, or null when there is no such live concept. */
+  dismissMark(t: Ms, conceptId: string): Promise<string | null> {
+    this.touch(t)
+    return this.enqueue(() => {
+      this.advanceNow(t)
+      const label = this.dynamics.dismiss(t, conceptId)
+      if (label === null) return null
+      this.log.append({ type: 'mark.dismissed', t, conceptId, label })
+      this.setList('dismissed', [...(this.hints.dismissed ?? []), label])
+      this.unfollowIf(t, conceptId)
+      return label
+    })
+  }
+
+  /** Undo of dismissMark. */
+  restoreMark(t: Ms, conceptId: string): Promise<string | null> {
+    this.touch(t)
+    return this.enqueue(() => {
+      this.advanceNow(t)
+      const label = this.dynamics.restore(t, conceptId)
+      if (label === null) return null
+      this.log.append({ type: 'mark.restored', t, conceptId, label })
+      const kept = [...(this.hints.dismissed ?? [])]
+      const i = kept.lastIndexOf(label)
+      if (i >= 0) kept.splice(i, 1)
+      this.setList('dismissed', kept)
+      return label
+    })
+  }
+
+  /** The speaker corrects a mark's label. Resolves to what happened, or null when nothing changed. */
+  renameMark(t: Ms, conceptId: string, label: string): Promise<{ from: string; to: string; mergedInto: string | null } | null> {
+    this.touch(t)
+    return this.enqueue(() => {
+      this.advanceNow(t)
+      const r = this.dynamics.rename(t, conceptId, label)
+      if (r === null) return null
+      this.log.append({ type: 'mark.renamed', t, conceptId, from: r.from, to: r.to, mergedInto: r.mergedInto })
+      this.setList('corrections', [...(this.hints.corrections ?? []), { from: r.from, to: r.to }])
+      if (this.followId === conceptId) {
+        if (r.mergedInto) this.unfollowIf(t, conceptId)
+        else this.applyFollow(conceptId, r.to)
+      }
+      return r
     })
   }
 

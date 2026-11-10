@@ -57,7 +57,7 @@ export class WhisperTranscriber implements Transcriber {
   private transcribe: TranscribeFn | null = null
   private connected = false
   private readonly o: Required<Omit<WhisperTranscriberOptions, 'open' | 'language' | 'vocabulary'>>
-  private readonly vocabulary: string
+  private words: string[]
   private lastFinal = ''
 
   private carry = new Int16Array(0)          // samples not yet making a whole frame
@@ -85,7 +85,7 @@ export class WhisperTranscriber implements Transcriber {
       minRms: opts.minRms ?? 200,
       splitSearchMs: opts.splitSearchMs ?? 3000,
     }
-    this.vocabulary = opts.vocabulary?.length ? `${opts.vocabulary.join(', ')}. ` : ''
+    this.words = [...(opts.vocabulary ?? [])]
   }
 
   async connect(cbs: TranscriberCallbacks): Promise<void> {
@@ -103,6 +103,10 @@ export class WhisperTranscriber implements Transcriber {
     let off = 0
     for (; off + FRAME <= all.length; off += FRAME) this.onFrame(all.subarray(off, off + FRAME))
     this.carry = all.slice(off)
+  }
+
+  addVocabulary(words: string[]): void {
+    for (const w of words) if (!this.words.includes(w)) this.words.push(w)
   }
 
   /** Closes whatever is being spoken and resolves once its final has been delivered. */
@@ -208,7 +212,7 @@ export class WhisperTranscriber implements Transcriber {
     try {
       // After a failure the handle is dropped, so this asks for the server again (it restarts if it died).
       this.transcribe ??= await this.opts.open()
-      const text = cleanWhisperText(await this.transcribe(pcm, { language: this.opts.language, prompt: (this.vocabulary + this.lastFinal.slice(-PROMPT_TAIL_CHARS)) || undefined }))
+      const text = cleanWhisperText(await this.transcribe(pcm, { language: this.opts.language, prompt: ((this.words.length ? `${this.words.join(', ')}. ` : '') + this.lastFinal.slice(-PROMPT_TAIL_CHARS)) || undefined }))
       if (this.failing) { this.failing = false; this.cbs?.onStatus('listening') }
       return text
     } catch (e) {

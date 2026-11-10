@@ -61,6 +61,9 @@ export function createChart(els: { chart: SVGSVGElement; inspector: HTMLElement;
       case 'nudged': return `nudged +${tr.delta}`
       case 'displaced': return `displaced by ${tr.byConceptId}`
       case 'merged': return `absorbed ${tr.fromConceptId}`
+      case 'dismissed': return 'dismissed by the speaker'
+      case 'restored': return 'restored'
+      case 'renamed': return `renamed from "${tr.from}"`
     }
   }
 

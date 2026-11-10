@@ -11,6 +11,10 @@ export type SoundingEvent =
   | { type: 'sounding.surfaced'; t: Ms }
   | { type: 'context.brought'; t: Ms; text: string }
   | { type: 'mark.followed'; t: Ms; conceptId: string | null; label: string | null }
+  // The speaker's own corrections. Each is also a labelled example of the pipeline getting something wrong.
+  | { type: 'mark.dismissed'; t: Ms; conceptId: string; label: string }
+  | { type: 'mark.restored'; t: Ms; conceptId: string; label: string }
+  | { type: 'mark.renamed'; t: Ms; conceptId: string; from: string; to: string; mergedInto: string | null }
 
 /** Append-only, timestamp-monotonic log. The session's spine. */
 export class EventLog {
@@ -25,6 +29,9 @@ export class EventLog {
     'sounding.surfaced': [],
     'context.brought': ['text'],
     'mark.followed': ['conceptId', 'label'],
+    'mark.dismissed': ['conceptId', 'label'],
+    'mark.restored': ['conceptId', 'label'],
+    'mark.renamed': ['conceptId', 'from', 'to', 'mergedInto'],
   }
 
   append(e: SoundingEvent): void {

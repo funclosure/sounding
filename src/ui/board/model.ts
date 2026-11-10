@@ -28,14 +28,15 @@ export function snapshotOf(e: Extract<SoundingEvent, { type: 'reading.changed' }
 export interface Diff {
   arrived: MarkView[]
   kept: MarkView[]
-  departed: Array<{ id: string; reason: 'displaced' | 'absorbed' | 'faded'; by?: string }>
+  departed: Array<{ id: string; reason: 'displaced' | 'absorbed' | 'dismissed' | 'faded'; by?: string }>
 }
 
 /**
  * What changed between two readings. Ported from the prototype's
  * `applyReading` (docs/design/sounding-phone.template.html): a mark that
  * vanishes is `displaced` when a `displaced` transition names it, `absorbed`
- * when a `merged` transition's `fromConceptId` is it, else it just `faded`.
+ * when a `merged` transition's `fromConceptId` is it, `dismissed` when the
+ * speaker dismissed it, else it just `faded`.
  */
 export function diffReadings(prev: ReadingSnapshot | null, next: ReadingSnapshot): Diff {
   const prevIds = new Set((prev?.marks ?? []).map((m) => m.id))
@@ -43,9 +44,11 @@ export function diffReadings(prev: ReadingSnapshot | null, next: ReadingSnapshot
 
   const displacedBy = new Map<string, string>()
   const absorbed = new Set<string>()
+  const dismissed = new Set<string>()
   for (const tr of next.transitions) {
     if (tr.kind === 'displaced') displacedBy.set(tr.conceptId, tr.byConceptId)
     if (tr.kind === 'merged') absorbed.add(tr.fromConceptId)
+    if (tr.kind === 'dismissed') dismissed.add(tr.conceptId)
   }
 
   const arrived: MarkView[] = []
@@ -61,6 +64,7 @@ export function diffReadings(prev: ReadingSnapshot | null, next: ReadingSnapshot
     const by = displacedBy.get(id)
     if (by) departed.push({ id, reason: 'displaced', by })
     else if (absorbed.has(id)) departed.push({ id, reason: 'absorbed' })
+    else if (dismissed.has(id)) departed.push({ id, reason: 'dismissed' })
     else departed.push({ id, reason: 'faded' })
   }
 
@@ -127,9 +131,10 @@ export function laneSeries(readings: ReadingSnapshot[], endT: Ms): Array<{ id: s
   const labels = new Map<string, string>()
   for (const r of readings) {
     for (const m of r.marks) {
+      // the latest label wins: a lane follows its concept through a rename
+      labels.set(m.id, m.label)
       if (!firstT.has(m.id)) {
         firstT.set(m.id, r.t)
-        labels.set(m.id, m.label)
         order.push(m.id)
       }
     }

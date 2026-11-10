@@ -1,5 +1,5 @@
 import type { Concept, ConceptCandidate, Ms, Reading, Transition } from '../core/types'
-import type { IdentityResolver } from './identity'
+import { normalizeLabel, type IdentityResolver } from './identity'
 import type { SalienceConfig } from './config'
 import { tokenize } from '../core/text'
 
@@ -31,6 +31,8 @@ export class ReadingDynamics {
       const existingId = await this.resolver.resolve(cand, [...this.concepts.values()])
       if (existingId !== null) {
         const c = this.concepts.get(existingId)!
+        // A dismissed concept stays tracked exactly so that its look-alikes resolve here and go nowhere.
+        if (c.dismissed) continue
         c.weight += support
         c.confidence = Math.max(c.confidence, cand.confidence)
         c.lastSupportT = t
@@ -68,7 +70,7 @@ export class ReadingDynamics {
 
     const surfacedSet = new Set(this.surfaced)
     const eligible = [...this.concepts.values()]
-      .filter((c) => c.confidence >= this.config.confidenceFloor)
+      .filter((c) => !c.dismissed && c.confidence >= this.config.confidenceFloor)
       .sort((a, b) => (b.weight - a.weight) || (a.id < b.id ? -1 : 1))
 
     // Fill free slots — appearing into an empty slot needs no hysteresis.
@@ -93,6 +95,59 @@ export class ReadingDynamics {
       transitions,
       reading: { t, slack: t - this.lastSpeechT > this.config.slackAfterMs, marks },
     }
+  }
+
+  /** The speaker says this mark is wrong: off the board for the rest of the sounding. Returns its label, or null if unknown / already dismissed. */
+  dismiss(t: Ms, conceptId: string): string | null {
+    const c = this.concepts.get(conceptId)
+    if (!c || c.dismissed) return null
+    this.decayTo(t)
+    c.dismissed = true
+    this.surfaced = this.surfaced.filter((id) => id !== conceptId)
+    this.streaks.delete(conceptId)
+    this.pendingTransitions.push({ kind: 'dismissed', conceptId, label: c.label })
+    return c.label
+  }
+
+  /** Undo a dismissal. The concept competes again with whatever weight it has left. */
+  restore(t: Ms, conceptId: string): string | null {
+    const c = this.concepts.get(conceptId)
+    if (!c || !c.dismissed) return null
+    this.decayTo(t)
+    c.dismissed = false
+    this.pendingTransitions.push({ kind: 'restored', conceptId, label: c.label })
+    return c.label
+  }
+
+  /**
+   * The speaker corrects a label. The old one is kept as an alias so identity
+   * still catches it. If the new label already belongs to another live
+   * concept, the two are one: this concept is absorbed into that one.
+   */
+  rename(t: Ms, conceptId: string, label: string): { from: string; to: string; mergedInto: string | null } | null {
+    const c = this.concepts.get(conceptId)
+    const to = label.trim()
+    if (!c || c.dismissed || to.length === 0 || to === c.label) return null
+    this.decayTo(t)
+    const from = c.label
+    const key = normalizeLabel(to)
+    const into = [...this.concepts.values()].find((o) => o.id !== c.id && !o.dismissed && normalizeLabel(o.label) === key)
+    if (into) {
+      into.weight += c.weight
+      into.confidence = Math.max(into.confidence, c.confidence)
+      into.firstSeenT = Math.min(into.firstSeenT, c.firstSeenT)
+      into.lastSupportT = Math.max(into.lastSupportT, c.lastSupportT)
+      into.aliases = [...new Set([...(into.aliases ?? []), from, ...(c.aliases ?? [])])]
+      this.concepts.delete(c.id)
+      this.surfaced = this.surfaced.filter((id) => id !== c.id)
+      this.streaks.delete(c.id)
+      this.pendingTransitions.push({ kind: 'merged', fromConceptId: c.id, intoConceptId: into.id })
+      return { from, to: into.label, mergedInto: into.id }
+    }
+    c.aliases = [...new Set([...(c.aliases ?? []), from])].filter((a) => a !== to)
+    c.label = to
+    this.pendingTransitions.push({ kind: 'renamed', conceptId, from, to })
+    return { from, to, mergedInto: null }
   }
 
   private contest(transitions: Transition[], eligible: Concept[], surfacedSet: Set<string>): void {

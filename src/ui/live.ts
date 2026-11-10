@@ -219,6 +219,8 @@ function finish(statusText: string, opts?: { keepStatusClass?: boolean }) {
     screen.classList.remove('slack', 'surfaced')
   }
   syncCtxOpenVisibility()
+  renaming = null
+  renderHint() // corrections are only offered while live
 }
 
 // The "bring context" button (round-control affordance for the popover on
@@ -265,16 +267,89 @@ function showSurfaced() {
   layout.onSurfaced()
 }
 
-function toggleFollow(id: string) {
-  lit = lit === id ? null : id
+// ---- corrections: the speaker dismisses or renames the followed mark from
+// the hint line. `renaming` holds the id whose label is being edited;
+// `undo` the last dismissed mark, offered back for a few seconds.
+let renaming: string | null = null
+let undo: { id: string; label: string } | null = null
+let undoTimer: ReturnType<typeof setTimeout> | null = null
+const UNDO_MS = 8000
+
+const canCorrect = () => state === 'live' && !replaying && !!ws && ws.readyState === WebSocket.OPEN
+
+function renderHint() {
+  if (renaming && renaming === lit) {
+    hint.innerHTML = `<form class="rename"><label>rename <input name="label" maxlength="60" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(labelOf.get(lit) ?? '')}" /></label> · <button type="button" data-act="cancel">cancel</button></form>`
+    const input = hint.querySelector('input')!
+    input.focus()
+    input.select()
+    return
+  }
+  if (lit) {
+    const acts = canCorrect() ? `<button type="button" data-act="rename">rename</button> · <button type="button" data-act="dismiss">dismiss</button> · ` : ''
+    hint.innerHTML = `following <b>${escapeHtml(labelOf.get(lit) ?? lit)}</b> · ${acts}<button type="button" data-act="letgo">let go</button>`
+    return
+  }
+  if (undo && canCorrect()) {
+    hint.innerHTML = `dismissed <b class="gone">${escapeHtml(undo.label)}</b> · <button type="button" data-act="undo">undo</button>`
+    return
+  }
+  hint.textContent = ''
+}
+
+function setFollow(id: string | null, tellServer: boolean) {
+  lit = id
+  renaming = null
   board.setLit(lit)
   lanes.setLit(lit)
   lanesD.setLit(lit)
-  hint.innerHTML = lit ? `following <b>${escapeHtml(labelOf.get(lit) ?? lit)}</b> · tap again to let go` : ''
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'follow', conceptId: lit }))
-  }
+  renderHint()
+  if (tellServer && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'follow', conceptId: lit }))
 }
+
+function toggleFollow(id: string) {
+  setFollow(lit === id ? null : id, true)
+}
+
+function clearUndo() {
+  if (undoTimer) clearTimeout(undoTimer)
+  undoTimer = null
+  undo = null
+}
+
+hint.addEventListener('click', (e) => {
+  const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act
+  if (!act) return
+  if (act === 'letgo') return setFollow(null, true)
+  if (act === 'cancel') { renaming = null; return renderHint() }
+  if (!canCorrect()) return renderHint()
+  if (act === 'rename' && lit) { renaming = lit; return renderHint() }
+  if (act === 'dismiss' && lit) {
+    const id = lit
+    clearUndo()
+    undo = { id, label: labelOf.get(id) ?? id }
+    undoTimer = setTimeout(() => { clearUndo(); renderHint() }, UNDO_MS)
+    ws!.send(JSON.stringify({ type: 'dismiss', conceptId: id }))
+    // the server lets go of a dismissed mark itself, so no follow message
+    return setFollow(null, false)
+  }
+  if (act === 'undo' && undo) {
+    ws!.send(JSON.stringify({ type: 'restore', conceptId: undo.id }))
+    clearUndo()
+    return renderHint()
+  }
+})
+hint.addEventListener('submit', (e) => {
+  e.preventDefault()
+  const id = renaming
+  const label = (hint.querySelector('input')?.value ?? '').trim()
+  renaming = null
+  if (id && label && label !== labelOf.get(id) && canCorrect()) ws!.send(JSON.stringify({ type: 'rename', conceptId: id, label }))
+  renderHint()
+})
+hint.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && renaming) { renaming = null; renderHint() }
+})
 board.onTap(toggleFollow)
 lanes.onTapLane(toggleFollow)
 lanesD.onTapLane(toggleFollow)
@@ -301,6 +376,8 @@ function onMessage(m: LiveMessage) {
       // during the scrub, not just what was shown live.
       finish(`saved ${m.message ?? ''}`)
       showSurfaced()
+    } else if (m.state === 'warning') {
+      console.warn(`live: ${m.message ?? ''}`)
     } else {
       setState(m.state, m.state === 'listening')
       if (m.state === 'listening') big.disabled = false
@@ -318,7 +395,9 @@ function onMessage(m: LiveMessage) {
     // ghost-promotion path (below, via showLive) treats it as confirmed
     // instead of a brand-new arrival.
     for (const mk of snap.marks) {
+      const relabelled = mk.id === lit && labelOf.get(mk.id) !== mk.label
       labelOf.set(mk.id, mk.label)
+      if (relabelled && !renaming) renderHint()
       if (seenLabelIds.has(mk.id)) continue
       seenLabelIds.add(mk.id)
       if (contextText && contextSeeds.length < 5 && !contextSeeds.some((s) => s.id === mk.id) && matchesContext(mk.label)) {
@@ -328,6 +407,8 @@ function onMessage(m: LiveMessage) {
     }
   }
   if (m.type === 'candidates.emitted') counters.textContent = summary(events)
+  // a rename that turned out to be a merge: the followed mark is gone, absorbed into the other
+  if (m.type === 'mark.renamed' && m.mergedInto && lit === m.conceptId) setFollow(null, false)
   if (!replaying) showLive(m)
 }
 
@@ -362,6 +443,8 @@ function showAt(t: Ms) {
   // A scrub with no events yet is a no-op.
   if (events.length === 0) return
   replaying = true
+  renaming = null
+  renderHint()
   shownT = t
   const s = readings.filter((r) => r.t <= t).at(-1) ?? null
   board.reset()
@@ -378,6 +461,7 @@ function showAt(t: Ms) {
 }
 function backToLive() {
   replaying = false
+  renderHint()
   const s = readings.at(-1) ?? null
   board.reset()
   if (s) board.apply(s, { instant: true })
@@ -478,6 +562,8 @@ async function start() {
   seenLabelIds.clear()
   labelOf.clear()
   lit = null
+  renaming = null
+  clearUndo()
   board.setLit(null)
   lanes.setLit(null)
   lanesD.setLit(null)

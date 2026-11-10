@@ -181,7 +181,7 @@ export function createBoard(field: HTMLElement): Board {
       const el = live.get(d.id)
       if (!el) continue
       live.delete(d.id)
-      if (d.reason === 'displaced') {
+      if (d.reason === 'displaced' || d.reason === 'dismissed') {
         el.classList.add('sink')
         el.style.transform = 'translate(-50%, 60%)'
       } else {
@@ -209,6 +209,9 @@ export function createBoard(field: HTMLElement): Board {
         el.classList.remove('ghost')
         makeInteractive(el, m.id)
         if (!instant) el.classList.add('arrive')
+        el.textContent = m.label
+      } else if (el.textContent !== m.label) {
+        // renamed by the speaker (or a scrub across a rename): same mark, new word
         el.textContent = m.label
       }
 
