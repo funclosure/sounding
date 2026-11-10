@@ -104,7 +104,7 @@ describe('writeWrapFile', () => {
 })
 
 describe('the wrap over the live socket', () => {
-  it('announces the wrap before stopped, sends it, and rewrites it when the instructions change', async () => {
+  it('announces the wrap before stopped, sends it, rewrites it when the instructions change, and reads it another way without saving', async () => {
     const promptDir = mkdtempSync(join(tmpdir(), 'sounding-wrap-'))
     const prompts: string[] = []
     const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
@@ -143,6 +143,17 @@ describe('the wrap over the live socket', () => {
     expect(prompts).toEqual([DEFAULT_WRAP_PROMPT, 'One line.'])
     expect(readWrapPrompt(promptDir).prompt).toBe('One line.')
     expect(readFileSync(wrapPath, 'utf8')).toBe('wrap 2\n')
+
+    // another reading of the same sounding: used once, reported, and not saved
+    const mark2 = seen.length
+    ws.send(JSON.stringify({ type: 'rewrap', text: 'What I stepped around.' }))
+    const other = await waitFor((m) => m.type === 'live.wrap' && m.state === 'done', mark2)
+    expect(other).toMatchObject({ text: 'wrap 3', prompt: 'One line.', isDefaultPrompt: false })
+    expect(readWrapPrompt(promptDir).prompt).toBe('One line.')
+    const mark3 = seen.length
+    ws.send(JSON.stringify({ type: 'rewrap' }))
+    await waitFor((m) => m.type === 'live.wrap' && m.state === 'done', mark3)
+    expect(prompts).toEqual([DEFAULT_WRAP_PROMPT, 'One line.', 'What I stepped around.', 'One line.'])
 
     ws.close()
     await new Promise<void>((r) => wss.close(() => r()))

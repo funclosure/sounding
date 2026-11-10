@@ -16,6 +16,7 @@ import { createSheet } from './board/sheet'
 import { createPanels } from './board/panels'
 import { createPopover } from './board/popover'
 import { LIVE_SOCKET_PATH } from '../live/socket-path'
+import { LENSES, CARRY_MAX_MARKS, carryContext, matchCarried, soundingNote } from './after'
 
 const screen = document.getElementById('screen') as HTMLElement
 const fieldEl = document.getElementById('field') as HTMLElement
@@ -26,6 +27,7 @@ const counters = document.getElementById('counters')!
 const big = document.getElementById('big') as HTMLButtonElement
 const hint = document.getElementById('hint')!
 const wrapEl = document.getElementById('wrap') as HTMLElement
+const pinnedEl = document.getElementById('pinned') as HTMLElement
 const scrim = document.getElementById('scrim') as HTMLElement
 const sheetRoot = document.getElementById('sheet') as HTMLElement
 const grab = document.getElementById('grab') as HTMLElement
@@ -153,6 +155,11 @@ let lastBuildT: Ms = 0
 // `start` (as the seeded vocabulary hint) and again via a `context` message
 // whenever it's (re)seeded or cleared while live.
 let contextText = ''
+// what the speaker typed into "bring context" themselves; a carried-on sounding adds to it, a fresh one goes back to it
+let broughtText = ''
+// carrying on: the last sounding's marks come back faint under ids of their own, and a mark that returns to one takes its place
+let carried: string[] = []
+const carryId = (i: number) => `carry-${i}`
 let contextSeeds: Array<{ id: string; label: string }> = []
 const seenLabelIds = new Set<string>()
 const labelOf = new Map<string, string>()
@@ -304,8 +311,12 @@ function renderHint() {
     hint.innerHTML = `dismissed <b class="gone">${escapeHtml(undo.label)}</b> · <button type="button" data-act="undo">undo</button>`
     return
   }
-  if (state === 'idle' && wrap && !wrapOpen) {
-    hint.innerHTML = `<button type="button" data-act="wrap">what I heard</button>`
+  // after a sounding the circle carries on from it, and says so
+  if (canCarry()) {
+    const q = lens === 'question' && wrap?.state === 'done'
+    hint.innerHTML = q
+      ? `<span class="go">answer it out loud</span> · the question stays<span class="long"> at the top of the board</span>`
+      : `<span class="go">keep talking</span> · these words stay, faint<span class="long">, until you return to them</span>${wrap ? '' : ' · <button type="button" data-act="fresh">start fresh</button>'}`
     return
   }
   hint.textContent = ''
@@ -319,11 +330,21 @@ type Wrap =
   | { state: 'done'; text: string; prompt: string; isDefaultPrompt: boolean }
   | { state: 'failed'; message: string; prompt: string; isDefaultPrompt: boolean }
 let wrap: Wrap | null = null
-let wrapOpen = false
 let wrapEditing = false
 let wrapWs: WebSocket | null = null
 // the instructions as last reported by the server, kept across a rewrite so the editor always has them
 let wrapPrompt: { text: string; isDefault: boolean } | null = null
+// which reading of the sounding the wrap on screen is: a key of LENSES, or 'own' for instructions typed for this once
+let lens = 'heard'
+let lensOpen = false
+let ownPrompt = ''
+// the plain "what I heard" of this sounding, kept so it is what gets carried on even while another reading is showing
+let heardText = ''
+const WRAP_HEADS: Record<string, string> = { heard: 'I hear you…', avoided: 'what you stepped around…', question: 'a question…', next: 'what next…', own: 'in your own words…' }
+
+const lastMarkLabels = (): string[] => { const last = readings.at(-1); return last ? columnOrder(last.marks).map((m) => m.label) : [] }
+/** After a sounding has ended with something on the board, the circle carries on from it. */
+const canCarry = () => state === 'idle' && ended && !replaying && lastMarkLabels().length > 0
 
 /** How far apart the words of a fresh wrap arrive (ms); the CSS multiplies it by each word's place. */
 const WORD_EVERY_MS = 45
@@ -350,38 +371,48 @@ function wrapHtml(text: string): { html: string; words: number } {
 
 function renderWrap() {
   // a scrub puts the board back as it was at that moment; the wrap waits until the return
-  const shown = !!wrap && wrapOpen && !replaying
+  const shown = !!wrap && !replaying
   wrapEl.hidden = !shown
   wrapEl.classList.toggle('editing', shown && wrapEditing && !!wrapPrompt)
   if (!wrap || !shown) { wrapEl.innerHTML = ''; return }
   const act = (name: string, label: string, quiet = false) => `<button type="button" class="act${quiet ? ' quiet' : ''}" data-act="${name}">${label}</button>`
+  // every way on from here says what it will do, in a line beside its name
+  const opt = (name: string, label: string, says: string, pressed?: boolean) => `<button type="button" class="opt" data-act="${name}"${pressed === undefined ? '' : ` aria-pressed="${pressed}"`}><b>${label}</b><span>${says}</span></button>`
   if (wrapEditing && wrapPrompt) {
-    wrapEl.innerHTML = `<form><p class="wl"><label for="wrap-prompt">how to wrap a sounding</label></p>
-      <textarea id="wrap-prompt" maxlength="2000" spellcheck="false">${escapeHtml(wrapPrompt.text)}</textarea>
-      <p class="note">${wrapPrompt.isDefault ? 'This is the default.' : 'Your own instructions.'} Saved for every sounding, on every device.</p>
-      <div class="acts"><button type="submit" class="act">save and rewrite</button>${wrapPrompt.isDefault ? '' : act('default', 'back to the default', true)}${act('cancel', 'cancel', true)}</div></form>`
+    // the instruction behind the reading in use, open to change: for this once, or for every sounding
+    const text = lens === 'own' ? ownPrompt : LENSES.find((l) => l.key === lens)?.prompt || wrapPrompt.text
+    wrapEl.innerHTML = `<form><p class="wl"><label for="wrap-prompt">how to read this sounding</label></p>
+      <textarea id="wrap-prompt" maxlength="2000" spellcheck="false">${escapeHtml(text)}</textarea>
+      <p class="note">“Just this time” rewrites this wrap only. “From now on” saves it for every sounding, on every device${wrapPrompt.isDefault ? '' : ', in place of your own saved instructions'}.</p>
+      <div class="acts">${act('once', 'use it just this time')}<button type="submit" class="act">use it from now on</button>${wrapPrompt.isDefault ? '' : act('default', 'back to the default', true)}${act('cancel', 'cancel', true)}</div></form>`
     return
   }
-  const head = `<p class="wl">I hear you…</p>`
+  if (lensOpen) {
+    // the readings take the wrap's place while they are open, so nothing has to scroll
+    wrapEl.innerHTML = `<p class="wl">hear it differently</p><div class="next" role="group" aria-label="Hear it differently">${LENSES.map((l) => opt(`lens:${l.key}`, l.label, l.says, l.key === lens)).join('')}${opt('own', 'my own words…', 'See the instruction behind it and write your own.', lens === 'own')}${opt('angle', 'back', 'Leave the wrap as it is.')}</div>`
+    return
+  }
+  const head = `<p class="wl">${WRAP_HEADS[lens] ?? WRAP_HEADS.heard}</p>`
+  const others = `${opt('angle', 'hear it differently', 'The same talk, read another way.')}`
+  const fresh = opt('fresh', 'start fresh', 'Clear the board and listen from nothing.')
   if (wrap.state === 'writing') wrapEl.innerHTML = head
   else if (wrap.state === 'done') {
     const said = wrapHtml(wrap.text)
-    const fresh = wrapRevealed !== wrap.text
+    const arriving = wrapRevealed !== wrap.text
     wrapRevealed = wrap.text
     wrapEl.style.setProperty('--word-every', `${WORD_EVERY_MS}ms`)
-    wrapEl.innerHTML = `${head}<div class="said${fresh ? ' arriving' : ''}">${said.html}</div><div class="acts${fresh ? ' arriving' : ''}" style="--i:${said.words}">${act('copy', 'copy')}${act('adjust', 'adjust', true)}${act('hide', 'hide', true)}</div>`
+    wrapEl.innerHTML = `${head}<div class="said${arriving ? ' arriving' : ''}">${said.html}</div><div class="next ruled${arriving ? ' arriving' : ''}" style="--i:${said.words}">${others}${opt('note', 'copy as a note', 'The words and the wrap, ready to paste.')}${fresh}</div>`
   }
-  else wrapEl.innerHTML = `${head}<p class="quiet">It didn’t come through: ${escapeHtml(wrap.message)}</p><div class="acts">${act('again', 'try again')}${act('adjust', 'adjust', true)}${act('hide', 'hide', true)}</div>`
+  else wrapEl.innerHTML = `${head}<p class="quiet">It didn’t come through: ${escapeHtml(wrap.message)}</p><div class="next ruled">${opt('again', 'try again', 'Ask for the same reading once more.')}${others}${fresh}</div>`
 }
 
 function onWrap(m: Extract<LiveMessage, { type: 'live.wrap' }>) {
   if (m.state === 'writing') {
-    // the first one of a sounding opens the card; a rewrite leaves it as the speaker has it
-    if (!wrap) wrapOpen = true
     wrap = { state: 'writing' }
   } else {
     wrap = m
     wrapPrompt = { text: m.prompt, isDefault: m.isDefaultPrompt }
+    if (m.state === 'done' && lens === 'heard') heardText = m.text
   }
   wrapEditing = false
   dots.gather(wrap.state === 'writing')
@@ -389,8 +420,9 @@ function onWrap(m: Extract<LiveMessage, { type: 'live.wrap' }>) {
   renderHint()
 }
 
-function sendWrap(msg: { type: 'rewrap' } | { type: 'wrap-prompt'; text: string }) {
+function sendWrap(msg: { type: 'rewrap'; text?: string } | { type: 'wrap-prompt'; text: string }) {
   wrapEditing = false
+  lensOpen = false
   if (wrapWs && wrapWs.readyState === WebSocket.OPEN) {
     wrapWs.send(JSON.stringify(msg))
     wrap = { state: 'writing' }
@@ -399,6 +431,14 @@ function sendWrap(msg: { type: 'rewrap' } | { type: 'wrap-prompt'; text: string 
   }
   dots.gather(wrap?.state === 'writing')
   renderWrap()
+  renderHint()
+}
+
+/** The same sounding, read with another instruction; "what I heard" is the saved one. Nothing is saved by this. */
+function readAs(key: string) {
+  lens = key
+  const text = key === 'own' ? ownPrompt : LENSES.find((l) => l.key === key)?.prompt
+  sendWrap(text ? { type: 'rewrap', text } : { type: 'rewrap' })
 }
 
 function clearWrap() {
@@ -406,8 +446,10 @@ function clearWrap() {
   wrapWs = null
   wrap = null
   wrapRevealed = null
-  wrapOpen = false
   wrapEditing = false
+  lens = 'heard'
+  lensOpen = false
+  heardText = ''
   renderWrap()
 }
 
@@ -415,17 +457,33 @@ wrapEl.addEventListener('click', (e) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')
   const act = el?.dataset.act
   if (!el || !act) return
-  if (act === 'hide') { wrapOpen = false; renderWrap(); return renderHint() }
-  if (act === 'adjust') { wrapEditing = true; renderWrap(); return wrapEl.querySelector('textarea')?.focus() }
+  if (act === 'angle') { lensOpen = !lensOpen; return renderWrap() }
+  if (act.startsWith('lens:')) {
+    const key = act.slice(5)
+    // the reading already on screen: just go back to it
+    if (key === lens && wrap?.state === 'done') { lensOpen = false; return renderWrap() }
+    return readAs(key)
+  }
+  if (act === 'own') { lensOpen = false; wrapEditing = true; renderWrap(); return wrapEl.querySelector('textarea')?.focus() }
+  if (act === 'once') {
+    const text = (wrapEl.querySelector('textarea')?.value ?? '').trim()
+    if (!text) return
+    ownPrompt = text
+    return readAs('own')
+  }
   if (act === 'cancel') { wrapEditing = false; return renderWrap() }
-  if (act === 'again') return sendWrap({ type: 'rewrap' })
-  if (act === 'default') return sendWrap({ type: 'wrap-prompt', text: '' })
-  if (act === 'copy' && wrap?.state === 'done') {
-    void navigator.clipboard.writeText(wrap.text).then(() => { el.textContent = 'copied' }, () => { el.textContent = 'select the text to copy' })
+  if (act === 'again') return readAs(lens)
+  if (act === 'default') { lens = 'heard'; return sendWrap({ type: 'wrap-prompt', text: '' }) }
+  if (act === 'fresh') return void start()
+  if (act === 'note' && wrap?.state === 'done') {
+    const title = `Sounding · ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
+    const says = el.querySelector('span') ?? el
+    void navigator.clipboard.writeText(soundingNote({ title, marks: lastMarkLabels(), wrap: wrap.text })).then(() => { says.textContent = 'Copied.' }, () => { says.textContent = 'Copying is blocked here: select the text instead.' })
   }
 })
 wrapEl.addEventListener('submit', (e) => {
   e.preventDefault()
+  lens = 'heard'
   sendWrap({ type: 'wrap-prompt', text: wrapEl.querySelector('textarea')?.value ?? '' })
 })
 wrapEl.addEventListener('keydown', (e) => {
@@ -457,7 +515,7 @@ hint.addEventListener('click', (e) => {
   const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act
   if (!act) return
   if (act === 'letgo') return setFollow(null, true)
-  if (act === 'wrap') { wrapOpen = true; renderWrap(); return renderHint() }
+  if (act === 'fresh') return void start()
   if (act === 'cancel') { renaming = null; return renderHint() }
   if (!canCorrect()) return renderHint()
   if (act === 'rename' && lit) { renaming = lit; return renderHint() }
@@ -499,6 +557,7 @@ const endTimers: Array<ReturnType<typeof setTimeout>> = []
 function beginEnding() {
   if (replaying) backToLive()
   ended = true
+  pinnedEl.hidden = true
   heard.clear()
   board.gather()
   dots.gather(true)
@@ -556,7 +615,16 @@ function onMessage(m: LiveMessage) {
       if (relabelled && !renaming) renderHint()
       if (seenLabelIds.has(mk.id)) continue
       seenLabelIds.add(mk.id)
-      if (contextText && contextSeeds.length < 5 && !contextSeeds.some((s) => s.id === mk.id) && matchesContext(mk.label)) {
+      // a return to something carried over from the last sounding: its faint mark becomes this one
+      const ci = carried.length ? matchCarried(mk.label, carried) : -1
+      if (ci >= 0) {
+        carried[ci] = ''
+        contextSeeds = contextSeeds.map((s) => (s.id === carryId(ci) ? { id: mk.id, label: mk.label } : s))
+        board.clearGhosts()
+        board.seedGhosts(contextSeeds)
+        continue
+      }
+      if (contextText && !carried.length && contextSeeds.length < 5 && !contextSeeds.some((s) => s.id === mk.id) && matchesContext(mk.label)) {
         contextSeeds = [...contextSeeds, { id: mk.id, label: mk.label }]
         board.seedGhosts(contextSeeds)
       }
@@ -702,7 +770,11 @@ async function teardownAudio() {
   await closeAudioRig(a)
 }
 
-async function start() {
+/** `carry`: the next sounding starts from the one that just ended, its marks faint on the board and its wrap as context. */
+async function start(carry = false) {
+  const carriedLabels = carry ? lastMarkLabels().slice(0, CARRY_MAX_MARKS) : []
+  const question = carry && lens === 'question' && wrap?.state === 'done' ? wrap.text.trim() : ''
+  const carriedText = carry ? carryContext({ marks: carriedLabels, wrap: heardText, question, brought: broughtText }) : ''
   const mine = ++gen
   state = 'starting'
   syncCtxOpenVisibility()
@@ -738,10 +810,15 @@ async function start() {
   // ids but keep contextText: onMessage's first-appearance matcher re-seeds
   // against the new session's ids as labels arrive, which is exactly the
   // "seeding before Drop only stores the text" semantic.
-  contextSeeds = []
+  contextSeeds = carriedLabels.map((label, i) => ({ id: carryId(i), label }))
+  carried = carriedLabels
+  contextText = carry ? carriedText : broughtText
+  pinnedEl.textContent = question
+  pinnedEl.hidden = !question
 
   board.clearGhosts() // also drops the board's own internal seed list, so reset() below doesn't reseed stale ids
   board.reset()
+  if (contextSeeds.length) board.seedGhosts(contextSeeds)
   heard.clear()
   const emptyTranscript = transcriptAt([], 0)
   transcript.render(emptyTranscript, true)
@@ -842,7 +919,7 @@ async function stop() {
 
 big.addEventListener('click', () => {
   layout.closeContext()
-  if (state === 'idle') void start()
+  if (state === 'idle') void start(canCarry())
   else if (state === 'live') void stop()
 })
 
@@ -886,6 +963,8 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
   }
   el.querySelector<HTMLButtonElement>('[data-act="seed"]')!.addEventListener('click', () => {
     contextText = textarea.value.trim()
+    broughtText = contextText
+    carried = []
     const labels = new Map<string, string>()
     for (const r of readings) for (const mk of r.marks) labels.set(mk.id, mk.label)
     contextSeeds = [...labels.entries()]
@@ -902,6 +981,8 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
   el.querySelector<HTMLButtonElement>('[data-act="clear"]')!.addEventListener('click', () => {
     for (const t of contextTextareas) t.value = ''
     contextText = ''
+    broughtText = ''
+    carried = []
     contextSeeds = []
     board.clearGhosts()
     if (state === 'live' && ws && ws.readyState === WebSocket.OPEN) {
