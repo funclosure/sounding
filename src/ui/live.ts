@@ -374,7 +374,7 @@ function onMessage(m: LiveMessage) {
       // Same reasoning: finish() returns from a scrub before doing anything
       // else, so the surfaced chart below reflects every reading received
       // during the scrub, not just what was shown live.
-      finish(`saved ${m.message ?? ''}`)
+      finish(`saved ${(m.message ?? '').split('/').pop()}`)
       showSurfaced()
     } else if (m.state === 'warning') {
       console.warn(`live: ${m.message ?? ''}`)

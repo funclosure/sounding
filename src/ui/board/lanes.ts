@@ -4,10 +4,15 @@ import type { laneSeries } from './model'
 type Series = ReturnType<typeof laneSeries>
 
 const NS = 'http://www.w3.org/2000/svg'
-/** viewBox geometry — must match the svg's `viewBox="0 0 390 560"` in the markup. */
-const W = 390
-const H = 560
-const L = 118
+/**
+ * Fallback geometry for an svg with no box yet (a hidden pane). Once it has
+ * one, the chart is drawn in the box's own pixels with no viewBox at all: a
+ * fixed viewBox stretched to fit (`preserveAspectRatio="none"`) distorts the
+ * text whenever the box isn't the viewBox's shape, and any viewBox gives the
+ * svg an aspect ratio that then fights the layout for its height.
+ */
+const FALLBACK_W = 390
+const FALLBACK_H = 560
 const R = 16
 const TOP = 8
 const AX = 22
@@ -35,6 +40,22 @@ export function createLanes(svg: SVGSVGElement): {
   let scrubbing = false
   const scrubCbs: Array<(ms: Ms) => void> = []
   const tapCbs: Array<(id: string) => void> = []
+  let W = FALLBACK_W
+  let H = FALLBACK_H
+  /** Width of the label gutter: about a third of the chart, within sensible bounds. */
+  let L = 118
+
+  /** Takes the svg's current pixel box as the drawing geometry. Returns whether it changed. */
+  function measure(): boolean {
+    const w = Math.round(svg.clientWidth) || FALLBACK_W
+    const h = Math.round(svg.clientHeight) || FALLBACK_H
+    svg.removeAttribute('viewBox')
+    if (w === W && h === H) return false
+    W = w
+    H = h
+    L = Math.round(Math.max(96, Math.min(190, W * 0.32)))
+    return true
+  }
 
   function xOf(ms: Ms): number {
     return L + (ms / endT) * (W - L - R)
@@ -47,7 +68,13 @@ export function createLanes(svg: SVGSVGElement): {
   function build(series: Series, end: Ms) {
     lanes = series
     endT = Math.max(1, end)
+    // Never squeeze the lanes below a readable height: when the pane is short
+    // (the surfaced list above it, a half-open sheet) the pane scrolls instead.
+    svg.style.minHeight = `${TOP + Math.max(1, series.length) * 22 + AX + 6}px`
+    measure()
     svg.innerHTML = ''
+    // ~6.4px per character of the 12.5px serif label
+    const maxChars = Math.max(8, Math.floor((L - 14) / 6.4))
 
     const laneH = Math.min(30, (H - TOP - AX) / Math.max(1, lanes.length))
     lanes.forEach((lane, i) => {
@@ -86,7 +113,7 @@ export function createLanes(svg: SVGSVGElement): {
       label.setAttribute('text-anchor', 'end')
       label.setAttribute('class', 'lane-label dim')
       label.dataset.id = lane.id
-      label.textContent = lane.label.length > 17 ? lane.label.slice(0, 16) + '…' : lane.label
+      label.textContent = lane.label.length > maxChars ? lane.label.slice(0, maxChars - 1) + '…' : lane.label
       label.addEventListener('pointerdown', (e) => e.stopPropagation())
       label.addEventListener('click', (e) => {
         e.stopPropagation()
@@ -128,10 +155,24 @@ export function createLanes(svg: SVGSVGElement): {
     svg.appendChild(headTime)
 
     paintLit()
-    head(0)
+    head(shownAt)
+  }
+
+  // The box changes when a panel opens or is dragged, the sheet moves, or the
+  // surfaced list appears above the chart: redraw at the new size.
+  let shownAt: Ms = 0
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => {
+      if (svg.clientWidth === 0 || svg.clientHeight === 0) return
+      if (Math.round(svg.clientWidth) === W && Math.round(svg.clientHeight) === H) return
+      const at = shownAt
+      build(lanes, endT)
+      head(at)
+    }).observe(svg)
   }
 
   function head(now: Ms) {
+    shownAt = now
     const x = xOf(now)
     const headLine = svg.querySelector<SVGLineElement>('[data-role="head"]')
     if (!headLine) return
