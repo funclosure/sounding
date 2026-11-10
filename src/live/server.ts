@@ -1,5 +1,5 @@
-// The live server: browser mic ↔ LiveSounding ↔ Gemini. `npm run live`.
-//   npm run live -- [-i gemini|claude|claude-sub|recurrence] [--transcriber gemini|whisper] [--port 8790] [--from <audio>] [--fixture <name> --fake-transcriber] [--speed N] [--headless] [--lang <code|auto>]
+// The live server: browser mic ↔ LiveSounding ↔ Gemini. `bun run live`.
+//   bun run live -- [-i gemini|claude|claude-sub|recurrence] [--transcriber gemini|whisper] [--port 8790] [--from <audio>] [--fixture <name> --fake-transcriber] [--speed N] [--headless] [--lang <code|auto>]
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws'
 import { assertApiAllowed, loadDotEnv } from '../cli/env'
 import { FIXTURES } from '../replay/fixtures/index'

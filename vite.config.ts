@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [soundingDevApi()],
   server: {
     // The live board connects to its own origin; in dev that is Vite, which
-    // hands the socket to `npm run live`. The browser's Origin header passes
+    // hands the socket to `bun run live`. The browser's Origin header passes
     // through unchanged, so the live server's localhost check still applies.
     proxy: { [LIVE_SOCKET_PATH]: { target: `ws://127.0.0.1:${DEFAULT_LIVE_PORT}`, ws: true } },
   },

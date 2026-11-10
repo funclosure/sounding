@@ -3,5 +3,5 @@
 // read it.
 export const LIVE_SOCKET_PATH = '/live-socket'
 
-/** `npm run live`'s default port. 8790, not 8787: the companion hub already listens on 127.0.0.1:8787. */
+/** `bun run live`'s default port. 8790, not 8787: the companion hub already listens on 127.0.0.1:8787. */
 export const DEFAULT_LIVE_PORT = 8790

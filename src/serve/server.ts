@@ -1,7 +1,7 @@
 // The always-on server: the built pages, the replay API and the live socket on
 // one origin, so a tailnet proxy (tailscale serve) can put all of it behind a
-// single https address. `npm run build && npm run serve`.
-//   npm run serve -- [--port 4490] [--allow-origin <https://host:port>]... [--allow-api] [-i <interpreter>] [--transcriber gemini|whisper] [--lang <code|auto>]
+// single https address. `bun run build && bun run serve`.
+//   bun run serve -- [--port 4490] [--allow-origin <https://host:port>]... [--allow-api] [-i <interpreter>] [--transcriber gemini|whisper] [--lang <code|auto>]
 //
 // Defaults are the ones that spend nothing: local whisper transcription and
 // Claude through the Claude Code login (claude-sub).
@@ -140,7 +140,7 @@ if (isDirectRun) {
   try { args = parseServeArgs(process.argv.slice(2)) } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2) }
   if (!args.allowApi) process.env.SOUNDING_API = 'off'
   loadDotEnv()
-  if (!isFile(join(process.cwd(), 'dist', 'index.html'))) { console.error('no dist/ — run: npm run build'); process.exit(1) }
+  if (!isFile(join(process.cwd(), 'dist', 'index.html'))) { console.error('no dist/ — run: bun run build'); process.exit(1) }
   const server = startServer(args)
   server.on('listening', () => {
     const origins = args.allowOrigins.length ? `, also allowing ${args.allowOrigins.join(' ')}` : ''

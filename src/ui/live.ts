@@ -100,7 +100,7 @@ mq.addEventListener('change', () => {
 })
 
 // Same origin by default: the always-on server answers the socket at
-// LIVE_SOCKET_PATH itself, and in dev Vite proxies that path to `npm run live`.
+// LIVE_SOCKET_PATH itself, and in dev Vite proxies that path to `bun run live`.
 // ?port= keeps the old direct connection to a live server on this machine.
 const portParam = new URLSearchParams(location.search).get('port')
 const liveUrl = portParam
@@ -522,7 +522,7 @@ async function start() {
     if (mine !== gen) return // a stale socket from a session finish() already closed
     if (state === 'idle') return // already finished via a 'stopped' status
     if (sawError && opened) console.warn('live socket errored before closing')
-    finish(opened ? 'connection closed' : `cannot reach live server at ${liveUrl} — run: npm run live`)
+    finish(opened ? 'connection closed' : `cannot reach live server at ${liveUrl} — run: bun run live`)
   }
   socket.onmessage = (ev) => {
     try {

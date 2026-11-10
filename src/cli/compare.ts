@@ -1,5 +1,5 @@
 // compare: two casts of the same recording, side by side.
-//   npm run compare -- soundings/memo.claude.jsonl soundings/memo.gemini.jsonl
+//   bun run compare -- soundings/memo.claude.jsonl soundings/memo.gemini.jsonl
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { EventLog, type SoundingEvent } from '../core/events'
@@ -66,7 +66,7 @@ const isDirectRun = process.argv[1]?.endsWith('compare.ts')
 if (isDirectRun) {
   const [pathA, pathB] = process.argv.slice(2)
   if (!pathA || !pathB) {
-    console.error('usage: npm run compare -- <log-a.jsonl> <log-b.jsonl>')
+    console.error('usage: bun run compare -- <log-a.jsonl> <log-b.jsonl>')
     process.exit(1)
   }
   const load = (p: string): NamedLog => ({ name: basename(p, '.jsonl'), events: EventLog.fromJsonl(readFileSync(p, 'utf8')).all() })
