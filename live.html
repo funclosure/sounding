@@ -8,6 +8,7 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="apple-mobile-web-app-title" content="Sounding" />
+    <meta name="theme-color" id="theme-color" content="#f4f2ec" />
     <script>
       // The mood, as on funclosure.xyz: night when the device is in dark mode,
       // otherwise the paper for the hour. Set before first paint; day is the fallback.
@@ -17,10 +18,14 @@
           var h = new Date().getHours()
           return dark.matches ? 'dark' : h < 5 || h >= 20 ? 'dusk' : h < 9 ? 'dawn' : h < 16 ? 'day' : 'dusk'
         }
+        // the strip behind the clock takes the mood's paper (the --paper values in board.css)
+        var PAPER = { dawn: '#f6efee', day: '#f4f2ec', dusk: '#f3ebe2', dark: '#16161b' }
         function apply() {
+          var m = mood()
           var c = document.documentElement.classList
           c.remove('dawn', 'day', 'dusk', 'dark')
-          c.add(mood())
+          c.add(m)
+          document.getElementById('theme-color').setAttribute('content', PAPER[m])
         }
         apply()
         dark.addEventListener('change', apply)
