@@ -29,7 +29,7 @@ export interface TurnRequest { system: string; prompt: string; model: string; sc
 /** One turn: resolves with the structured output, rejects with a readable reason. */
 export type RunTurn = (req: TurnRequest) => Promise<unknown>
 
-async function sdkTurn(req: TurnRequest): Promise<unknown> {
+export async function sdkTurn(req: TurnRequest): Promise<unknown> {
   const { query } = await import('@anthropic-ai/claude-agent-sdk')
   const conversation = query({
     prompt: req.prompt,

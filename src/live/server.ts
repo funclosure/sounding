@@ -16,6 +16,7 @@ import type { Transcriber } from './transcriber'
 import { WhisperTranscriber } from './whisper-transcriber'
 import { sharedWhisper, whisperLanguage } from './whisper-server'
 import type { FixtureScript } from '../replay/fixture'
+import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
 
 export const TRANSCRIBERS = ['gemini', 'whisper'] as const
 export type TranscriberName = (typeof TRANSCRIBERS)[number]
@@ -119,9 +120,37 @@ async function runHeadless(args: Args): Promise<void> {
   if (streamError) throw streamError instanceof Error ? streamError : new Error(errMsg(streamError))
 }
 
+export interface LiveDeps {
+  /** Writes the wrap. Default: the Claude login, except for the model-free `recurrence` baseline, which gets none. Null turns wraps off. */
+  wrap?: WrapWriter | null
+  /** Where the speaker's wrap instructions are kept. */
+  promptDir?: string
+}
+
 /** One browser tab's live socket: start/stop/context/follow messages plus binary PCM. Shared with the always-on server. */
-export function handleLiveConnection(ws: WsSocket, args: Args): void {
+export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = {}): void {
   let live: LiveSounding | null = null
+  // The sounding that just ended on this connection, kept so the speaker can
+  // adjust the instructions and have the same sounding wrapped again.
+  let ended: { material: WrapMaterial; logPath: string; writer: WrapWriter } | null = null
+  let wrapRun = 0
+  const writeWrap = async () => {
+    const e = ended
+    if (!e) return
+    const run = ++wrapRun
+    const { prompt, isDefault } = readWrapPrompt(deps.promptDir)
+    send({ type: 'live.wrap', state: 'writing' })
+    try {
+      const text = await e.writer(prompt, e.material)
+      if (run !== wrapRun) return // a newer request (changed instructions) supersedes this one
+      console.log(`wrote ${writeWrapFile(e.logPath, text)}`)
+      send({ type: 'live.wrap', state: 'done', text, prompt, isDefaultPrompt: isDefault })
+    } catch (err) {
+      if (run !== wrapRun) return
+      console.error(`[wrap] ${errMsg(err)}`)
+      send({ type: 'live.wrap', state: 'failed', message: errMsg(err), prompt, isDefaultPrompt: isDefault })
+    }
+  }
   // Tracks an in-flight `start` so a racing `stop` (an explicit stop
   // message, or the socket closing) waits for it to fully settle before
   // touching `live` — calling l.stop() while l.start() is still awaiting
@@ -136,12 +165,24 @@ export function handleLiveConnection(ws: WsSocket, args: Args): void {
   // from both interleave into the ring/segmenter.
   let stopping: Promise<void> | null = null
   const send = (m: LiveMessage) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)) }
+  // The writer for the sounding currently live, fixed at its start.
+  let liveWriter: WrapWriter | null = null
   const stop = async () => {
     if (starting) { try { await starting } catch { /* start already reported its own error */ } }
     if (!live) return
     const l = live; live = null
+    const writer = liveWriter
     stopping = (async () => {
-      try { const { logPath, summary } = await l.stop(); console.log(summary); console.log(`wrote ${logPath}`); send({ type: 'live.status', state: 'stopped', message: logPath }) }
+      try {
+        const { logPath, summary } = await l.stop(); console.log(summary); console.log(`wrote ${logPath}`)
+        const material = wrapMaterial(l.events())
+        // Nothing said, nothing to say back.
+        ended = writer && material.transcript ? { material, logPath, writer } : null
+        // Not awaited: the page gets `writing`, then `stopped` at once, then the wrap when it is ready.
+        // A wrap still in flight when the tab goes away is finished and saved all the same.
+        if (ended) void writeWrap()
+        send({ type: 'live.status', state: 'stopped', message: logPath })
+      }
       catch (e) { send({ type: 'live.status', state: 'error', message: errMsg(e) }) }
     })()
     try { await stopping } finally { stopping = null }
@@ -176,6 +217,7 @@ export function handleLiveConnection(ws: WsSocket, args: Args): void {
         const soundingId = `live-${stampName(new Date()).slice(4)}.${interpreter}`
         const l = new LiveSounding({ interpreterName: interpreter, transcriber, clock, send, soundingId, context })
         live = l
+        liveWriter = deps.wrap !== undefined ? deps.wrap : interpreter === 'recurrence' ? null : subscriptionWrap()
         await l.start()
         if (args.from) {
           streamFile(args.from, clock, (pcm) => live?.pushAudio(pcm))
@@ -187,6 +229,14 @@ export function handleLiveConnection(ws: WsSocket, args: Args): void {
       starting = null
     } else if (msg.type === 'stop') {
       await stop()
+    } else if (msg.type === 'wrap-prompt') {
+      // The speaker's own instructions for the wrap ('' goes back to the default), then the sounding that just ended is wrapped again with them.
+      const prompt = validWrapPrompt(msg.text)
+      if (prompt === null) { send({ type: 'live.status', state: 'warning', message: `wrap instructions must be text of at most ${WRAP_PROMPT_MAX_CHARS} characters, ignoring` }); return }
+      saveWrapPrompt(prompt, deps.promptDir)
+      await writeWrap()
+    } else if (msg.type === 'rewrap') {
+      await writeWrap()
     } else if (msg.type === 'context') {
       // A `context` message can race a still-in-flight `start` (the
       // browser drops it as soon as the socket opens, before the session

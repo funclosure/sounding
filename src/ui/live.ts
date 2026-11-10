@@ -23,6 +23,7 @@ const clockEl = document.getElementById('clock')!
 const counters = document.getElementById('counters')!
 const big = document.getElementById('big') as HTMLButtonElement
 const hint = document.getElementById('hint')!
+const wrapEl = document.getElementById('wrap') as HTMLElement
 const scrim = document.getElementById('scrim') as HTMLElement
 const sheetRoot = document.getElementById('sheet') as HTMLElement
 const grab = document.getElementById('grab') as HTMLElement
@@ -204,10 +205,12 @@ function escapeHtml(s: string): string {
 // The one authoritative teardown: every exit path (server error, socket
 // error/close, a failed setupAudio, or a clean stop) routes through this so
 // the mic is always released and the button always returns to rest.
-function finish(statusText: string, opts?: { keepStatusClass?: boolean }) {
+function finish(statusText: string, opts?: { keepStatusClass?: boolean; keepSocket?: boolean }) {
   if (replaying) backToLive()
   void teardownAudio()
-  if (ws && ws.readyState === WebSocket.OPEN) ws.close()
+  // A wrap is on its way: the socket stays open for it (and for rewrites) until the next sounding starts.
+  if (opts?.keepSocket && ws && ws.readyState === WebSocket.OPEN) wrapWs = ws
+  else if (ws && ws.readyState === WebSocket.OPEN) ws.close()
   ws = null
   state = 'idle'
   big.disabled = false
@@ -294,8 +297,115 @@ function renderHint() {
     hint.innerHTML = `dismissed <b class="gone">${escapeHtml(undo.label)}</b> · <button type="button" data-act="undo">undo</button>`
     return
   }
+  if (state === 'idle' && wrap && !wrapOpen) {
+    hint.innerHTML = `<button type="button" data-act="wrap">what I heard</button>`
+    return
+  }
   hint.textContent = ''
 }
+
+// ---- the wrap: what the listener heard, said back once a sounding has ended.
+// It arrives on the ended sounding's socket, which finish() keeps open for it;
+// the same socket carries a change of instructions and the rewrite that follows.
+type Wrap =
+  | { state: 'writing' }
+  | { state: 'done'; text: string; prompt: string; isDefaultPrompt: boolean }
+  | { state: 'failed'; message: string; prompt: string; isDefaultPrompt: boolean }
+let wrap: Wrap | null = null
+let wrapOpen = false
+let wrapEditing = false
+let wrapWs: WebSocket | null = null
+// the instructions as last reported by the server, kept across a rewrite so the editor always has them
+let wrapPrompt: { text: string; isDefault: boolean } | null = null
+
+/** Plain text with "- " bullets → paragraphs and lists. */
+function wrapHtml(text: string): string {
+  const out: string[] = []
+  let items: string[] = []
+  const flushItems = () => { if (items.length) { out.push(`<ul>${items.join('')}</ul>`); items = [] } }
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) { flushItems(); continue }
+    const bullet = /^[-•*]\s+(.*)$/.exec(line)
+    if (bullet) items.push(`<li>${escapeHtml(bullet[1])}</li>`)
+    else { flushItems(); out.push(`<p>${escapeHtml(line)}</p>`) }
+  }
+  flushItems()
+  return out.join('')
+}
+
+function renderWrap() {
+  wrapEl.hidden = !wrap || !wrapOpen
+  if (!wrap || !wrapOpen) { wrapEl.innerHTML = ''; return }
+  const act = (name: string, label: string, quiet = false) => `<button type="button" class="act${quiet ? ' quiet' : ''}" data-act="${name}">${label}</button>`
+  if (wrapEditing && wrapPrompt) {
+    wrapEl.innerHTML = `<form><p class="wl"><label for="wrap-prompt">how to wrap a sounding</label></p>
+      <textarea id="wrap-prompt" maxlength="2000" spellcheck="false">${escapeHtml(wrapPrompt.text)}</textarea>
+      <p class="note">${wrapPrompt.isDefault ? 'This is the default.' : 'Your own instructions.'} Saved for every sounding, on every device.</p>
+      <div class="acts"><button type="submit" class="act">save and rewrite</button>${wrapPrompt.isDefault ? '' : act('default', 'back to the default', true)}${act('cancel', 'cancel', true)}</div></form>`
+    return
+  }
+  const head = `<p class="wl">what I heard</p>`
+  if (wrap.state === 'writing') wrapEl.innerHTML = `${head}<p class="quiet">listening back…</p>`
+  else if (wrap.state === 'done') wrapEl.innerHTML = `${head}<div class="said">${wrapHtml(wrap.text)}</div><div class="acts">${act('copy', 'copy')}${act('adjust', 'adjust', true)}${act('hide', 'hide', true)}</div>`
+  else wrapEl.innerHTML = `${head}<p class="quiet">It didn’t come through: ${escapeHtml(wrap.message)}</p><div class="acts">${act('again', 'try again')}${act('adjust', 'adjust', true)}${act('hide', 'hide', true)}</div>`
+}
+
+function onWrap(m: Extract<LiveMessage, { type: 'live.wrap' }>) {
+  if (m.state === 'writing') {
+    // the first one of a sounding opens the card; a rewrite leaves it as the speaker has it
+    if (!wrap) wrapOpen = true
+    wrap = { state: 'writing' }
+  } else {
+    wrap = m
+    wrapPrompt = { text: m.prompt, isDefault: m.isDefaultPrompt }
+  }
+  wrapEditing = false
+  renderWrap()
+  renderHint()
+}
+
+function sendWrap(msg: { type: 'rewrap' } | { type: 'wrap-prompt'; text: string }) {
+  wrapEditing = false
+  if (wrapWs && wrapWs.readyState === WebSocket.OPEN) {
+    wrapWs.send(JSON.stringify(msg))
+    wrap = { state: 'writing' }
+  } else if (wrapPrompt) {
+    wrap = { state: 'failed', message: 'the connection to the server has closed', prompt: wrapPrompt.text, isDefaultPrompt: wrapPrompt.isDefault }
+  }
+  renderWrap()
+}
+
+function clearWrap() {
+  if (wrapWs && wrapWs.readyState === WebSocket.OPEN) wrapWs.close()
+  wrapWs = null
+  wrap = null
+  wrapOpen = false
+  wrapEditing = false
+  renderWrap()
+}
+
+wrapEl.addEventListener('click', (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')
+  const act = el?.dataset.act
+  if (!el || !act) return
+  if (act === 'hide') { wrapOpen = false; renderWrap(); return renderHint() }
+  if (act === 'adjust') { wrapEditing = true; renderWrap(); return wrapEl.querySelector('textarea')?.focus() }
+  if (act === 'cancel') { wrapEditing = false; return renderWrap() }
+  if (act === 'again') return sendWrap({ type: 'rewrap' })
+  if (act === 'default') return sendWrap({ type: 'wrap-prompt', text: '' })
+  if (act === 'copy' && wrap?.state === 'done') {
+    void navigator.clipboard.writeText(wrap.text).then(() => { el.textContent = 'copied' }, () => { el.textContent = 'select the text to copy' })
+  }
+})
+wrapEl.addEventListener('submit', (e) => {
+  e.preventDefault()
+  sendWrap({ type: 'wrap-prompt', text: wrapEl.querySelector('textarea')?.value ?? '' })
+})
+wrapEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && wrapEditing) { wrapEditing = false; renderWrap() }
+  e.stopPropagation() // typing here must not reach the page's T / C shortcuts
+})
 
 function setFollow(id: string | null, tellServer: boolean) {
   lit = id
@@ -321,6 +431,7 @@ hint.addEventListener('click', (e) => {
   const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act
   if (!act) return
   if (act === 'letgo') return setFollow(null, true)
+  if (act === 'wrap') { wrapOpen = true; renderWrap(); return renderHint() }
   if (act === 'cancel') { renaming = null; return renderHint() }
   if (!canCorrect()) return renderHint()
   if (act === 'rename' && lit) { renaming = lit; return renderHint() }
@@ -374,7 +485,7 @@ function onMessage(m: LiveMessage) {
       // Same reasoning: finish() returns from a scrub before doing anything
       // else, so the surfaced chart below reflects every reading received
       // during the scrub, not just what was shown live.
-      finish(`saved ${(m.message ?? '').split('/').pop()}`)
+      finish(`saved ${(m.message ?? '').split('/').pop()}`, { keepSocket: wrap !== null })
       showSurfaced()
     } else if (m.state === 'warning') {
       console.warn(`live: ${m.message ?? ''}`)
@@ -385,6 +496,7 @@ function onMessage(m: LiveMessage) {
     }
     return
   }
+  if (m.type === 'live.wrap') return onWrap(m)
   events.push(m)
   headT = m.t
   if (m.type === 'reading.changed') {
@@ -564,6 +676,7 @@ async function start() {
   lit = null
   renaming = null
   clearUndo()
+  clearWrap()
   board.setLit(null)
   lanes.setLit(null)
   lanesD.setLit(null)
@@ -611,6 +724,7 @@ async function start() {
     finish(opened ? 'connection closed' : `cannot reach live server at ${liveUrl} — run: bun run live`)
   }
   socket.onmessage = (ev) => {
+    if (mine !== gen) return // a late wrap for a sounding the page has already moved on from
     try {
       onMessage(JSON.parse(ev.data as string))
     } catch (e) {
