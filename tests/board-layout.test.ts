@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SlotLayout, separate } from '../src/ui/board/layout'
+import { SlotLayout, separate, columnOrder, columnFontPx } from '../src/ui/board/layout'
 import type { Placed } from '../src/ui/board/layout'
 
 describe('SlotLayout', () => {
@@ -213,5 +213,21 @@ describe('separate', () => {
     expect(overlaps(a, b)).toBe(true)
     expect(a).toEqual({ id: 'a', x: 50, y: 28, halfW: 40, halfH: 40 })
     expect(b).toEqual({ id: 'b', x: 50, y: 72, halfW: 40, halfH: 40 })
+  })
+})
+
+describe('the gathered column', () => {
+  it('ranks strongest first and keeps the given order between equals', () => {
+    const marks = [{ id: 'a', p: 0.2 }, { id: 'b', p: 0.4 }, { id: 'c', p: 0.2 }, { id: 'd', p: 0.05 }]
+    expect(columnOrder(marks).map((m) => m.id)).toEqual(['b', 'a', 'c', 'd'])
+    expect(marks.map((m) => m.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+  it('draws the sizes in: 15px at nothing, 34px from half the board up', () => {
+    expect(columnFontPx(0)).toBe(15)
+    expect(columnFontPx(0.25)).toBe(25)
+    expect(columnFontPx(0.5)).toBe(34)
+    expect(columnFontPx(0.9)).toBe(34)
+    expect(columnFontPx(0, true)).toBe(14)
+    expect(columnFontPx(0.5, true)).toBe(28)
   })
 })

@@ -4,6 +4,8 @@
 //   presence — a pool of dots gathers under each mark, larger with its prominence,
 //              brighter for a moment when the mark is supported again
 //   echo     — every heard word sends a ring out through the dots
+// When a sounding ends the echo comes back: while the board is gathering, rings close in on the marks
+// (`gather`), and the text of the wrap gets a clearing of its own (`clear`).
 // It is quiet everywhere and turns vivid around the pointer, which is a patch of the field itself. A dot with nothing
 // to say is not drawn, and each mark sits in a clearing so its label stays readable.
 // Wall clock allowed: this is decoration, never part of the reading.
@@ -11,8 +13,10 @@
 export interface Dots {
   /** Words just heard: wakes the breath and sends a ring from the voice. */
   heard(count: number): void
-  /** A mark was supported (appeared or nudged up): its pool brightens and rings. */
-  pulse(conceptId: string): void
+  /** A mark was supported (appeared or nudged up): its pool brightens and, unless `ring` is false, rings. */
+  pulse(conceptId: string, ring?: boolean): void
+  /** The ending: while on, rings close in on the marks, one after another. */
+  gather(on: boolean): void
   stop(): void
 }
 
@@ -21,6 +25,8 @@ export interface DotsOptions {
   field: HTMLElement
   /** Where plain words ring from. */
   voice: HTMLElement
+  /** A block of text laid on the field (the wrap): no dots behind it while it is shown. */
+  clear?: HTMLElement
 }
 
 const TAU = Math.PI * 2
@@ -31,6 +37,11 @@ const POINTER_PATCH = 150
 /** The pointer's share of its full effect when it is nowhere near a mark. */
 const POINTER_OPEN = 0.22
 const RING_LIFE_S = 2.6
+/** An inward ring starts this far out and closes on its centre over its life. */
+const INWARD_FROM = 500
+const INWARD_EVERY_S = 0.95
+/** How far a text block's clearing reaches past its box, in px. */
+export const BOX_CLEAR = 56
 /** How far the clearing reaches past a label's box, in px. */
 export const CLEAR_X = 56
 export const CLEAR_Y = 48
@@ -55,6 +66,18 @@ export function clearingCeiling(dx: number, dy: number, halfW: number, halfH: nu
   return out >= 1 ? Infinity : 1.6 * out * out
 }
 
+/**
+ * The ceiling a block of text puts on a dot at (dx, dy) from its centre: no
+ * dot behind the block or within a few px of it, rising to no limit at
+ * `BOX_CLEAR` from its edge. Infinity outside that.
+ */
+export function boxCeiling(dx: number, dy: number, halfW: number, halfH: number): number {
+  const d = Math.hypot(Math.max(0, Math.abs(dx) - halfW), Math.max(0, Math.abs(dy) - halfH))
+  if (d >= BOX_CLEAR) return Infinity
+  const out = smoothstep(8, BOX_CLEAR, d)
+  return 1.6 * out * out
+}
+
 /** A mark's share of the field (0..1) from its rendered font size: the board sizes marks 15px + up to 31px by prominence. */
 export function prominenceFromFontPx(px: number): number {
   return clamp((px - 15) / 62, 0, 0.5)
@@ -69,7 +92,7 @@ export function band(x: number, y: number, t: number): number {
 }
 
 interface Pool { id: string; x: number; y: number; halfW: number; halfH: number; prom: number; target: number; life: number; pulse: number; r: number; seen: boolean }
-interface Ring { x: number; y: number; born: number; s: number }
+interface Ring { x: number; y: number; born: number; s: number; inward?: boolean }
 
 const hex = (c: string): number[] => {
   const h = c.trim().replace('#', '')
@@ -82,7 +105,7 @@ const mix = (p: number[], q: number[], u: number) =>
 export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
   const g = canvas.getContext('2d')
   // Reduced motion: the field is movement and nothing else, so it stays off.
-  if (!g || matchMedia('(prefers-reduced-motion: reduce)').matches) return { heard() {}, pulse() {}, stop() {} }
+  if (!g || matchMedia('(prefers-reduced-motion: reduce)').matches) return { heard() {}, pulse() {}, gather() {}, stop() {} }
 
   let W = 0, H = 0, DOT = 24, cols = 0, rows = 0
   let eased = new Float32Array(0)
@@ -110,6 +133,9 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
   let lastWordAt = -1e9
   let flowT = 0
   let voice = { x: 0, y: 0 }
+  let box: { x: number; y: number; halfW: number; halfH: number } | null = null
+  let gathering = false
+  let lastInwardAt = -1e9
 
   // The marks are the board's own elements; read where they are a few times a
   // second (they glide between slots over 1.4s, and the pools ease after them).
@@ -117,7 +143,7 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
     const c = canvas.getBoundingClientRect()
     for (const p of pools.values()) p.seen = false
     for (const el of Array.from(o.field.querySelectorAll<HTMLElement>('.mark[data-id]'))) {
-      if (el.classList.contains('sink') || el.classList.contains('absorbed') || el.classList.contains('ghost')) continue
+      if (el.classList.contains('sink') || el.classList.contains('absorbed') || el.classList.contains('ghost') || el.classList.contains('away')) continue
       const id = el.dataset.id!
       const r = el.getBoundingClientRect()
       let p = pools.get(id)
@@ -131,6 +157,8 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
     }
     const v = o.voice.getBoundingClientRect()
     voice = { x: v.left - c.left + v.width / 2, y: v.top - c.top + v.height / 2 }
+    const b = o.clear && !o.clear.hidden ? o.clear.getBoundingClientRect() : null
+    box = b && b.width > 0 ? { x: b.left - c.left + b.width / 2, y: b.top - c.top + b.height / 2, halfW: b.width / 2, halfH: b.height / 2 } : null
   }
 
   // quiet everywhere, vivid around the pointer (or a finger while it is down)
@@ -167,6 +195,13 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
     }
     for (let i = rings.length - 1; i >= 0; i--) if (t - rings[i].born > RING_LIFE_S) rings.splice(i, 1)
     const live = [...pools.values()].filter((p) => p.life > 0.01)
+    if (gathering && t - lastInwardAt > INWARD_EVERY_S) {
+      // the echo coming back: toward the middle of the marks, or the upper field when there are none
+      let cx = W / 2, cy = H * 0.3
+      if (live.length) { cx = 0; cy = 0; for (const p of live) { cx += p.x / live.length; cy += p.y / live.length } }
+      rings.push({ x: cx, y: cy, born: t, s: 0.55, inward: true })
+      lastInwardAt = t
+    }
     const amb = 0.3 + 1.25 * activity
     // How much the pointer may stir: fully beside a mark, only a little out in the open field.
     let beside = 0
@@ -189,14 +224,20 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
           const c = clearingCeiling(dx, dy, p.halfW, p.halfH)
           if (c < ceiling) ceiling = c
         }
+        if (box) {
+          const c = boxCeiling(x - box.x, y - box.y, box.halfW, box.halfH)
+          if (c < ceiling) ceiling = c
+        }
         // pools and rings screen over the bands, so overlaps merge instead of creasing
         const blob = 1.08 * (1 - keep)
         b = b + blob - b * blob
         for (const r of rings) {
           const age = t - r.born
-          const d = Math.hypot(x - r.x, y - r.y) - (20 + age * 190)
+          const d = Math.hypot(x - r.x, y - r.y) - (r.inward ? Math.max(0, INWARD_FROM - age * 190) : 20 + age * 190)
           if (d > 60 || d < -60) continue
-          const v = r.s * (1 - age / RING_LIFE_S) ** 1.5 * Math.exp(-((d / 20) ** 2))
+          // an inward ring swells as it closes and is gone as it arrives
+          const fade = r.inward ? Math.sin(Math.PI * Math.min(1, age / RING_LIFE_S)) ** 0.8 : (1 - age / RING_LIFE_S) ** 1.5
+          const v = r.s * fade * Math.exp(-((d / 20) ** 2))
           b = b + v - b * v
         }
         const close = near < 0.01 ? 0 : near * Math.exp(-((x - px) ** 2 + (y - py) ** 2) / (POINTER_REACH * POINTER_REACH))
@@ -249,11 +290,14 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
       lastWordAt = t
       rings.push({ x: voice.x, y: voice.y, born: t, s: 0.3 })
     },
-    pulse(conceptId) {
+    pulse(conceptId, ring = true) {
       const p = pools.get(conceptId)
       if (!p) return
       p.pulse = 1
-      rings.push({ x: p.x, y: p.y, born: performance.now() / 1000, s: 0.7 })
+      if (ring) rings.push({ x: p.x, y: p.y, born: performance.now() / 1000, s: 0.7 })
+    },
+    gather(on) {
+      gathering = on
     },
     stop() {
       cancelAnimationFrame(raf)

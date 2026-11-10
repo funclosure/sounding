@@ -1,4 +1,4 @@
-import { SlotLayout, separate } from './layout'
+import { SlotLayout, separate, columnOrder, columnFontPx } from './layout'
 import type { Placed } from './layout'
 import { diffReadings } from './model'
 import type { ReadingSnapshot } from './model'
@@ -10,6 +10,13 @@ export interface Board {
   setLit(id: string | null): void
   reset(): void
   relayout(): void
+  /**
+   * The ending: the marks leave their slots and draw together into one
+   * column at the top, strongest first. Stays that way (through later
+   * readings and resizes) until `release()` or `reset()`.
+   */
+  gather(opts?: { instant?: boolean }): void
+  release(): void
   onTap(cb: (id: string) => void): void
 }
 
@@ -23,13 +30,14 @@ const ARRIVE_MS = 2700
  * out per `diffReadings`. Ported from the prototype's `applyReading`/
  * `showGhosts`/`follow` (docs/design/sounding-phone.template.html).
  */
-export function createBoard(field: HTMLElement): Board {
+export function createBoard(field: HTMLElement, opts: { onColumn?: (bottom: number | null) => void } = {}): Board {
   const layout = new SlotLayout()
   const live = new Map<string, HTMLElement>()
   let prev: ReadingSnapshot | null = null
   let litId: string | null = null
   let seeds: Array<{ id: string; label: string }> = []
   const tapCbs: Array<(id: string) => void> = []
+  let gathered = false
 
   function emitTap(id: string) {
     for (const cb of tapCbs) cb(id)
@@ -61,6 +69,7 @@ export function createBoard(field: HTMLElement): Board {
    * of animating in from the wrong spot.
    */
   function settleAll(instantIds: Set<string>) {
+    if (gathered) return columnAll()
     const w = field.clientWidth
     const h = field.clientHeight
     const box = { width: w, height: h }
@@ -105,6 +114,69 @@ export function createBoard(field: HTMLElement): Board {
       if (!el) continue
       void el.offsetWidth
       el.style.transition = prevTransitions.get(id) ?? ''
+    }
+  }
+
+  /**
+   * The gathered board: every mark of the last reading in one centred
+   * column, ranked by prominence, a little smaller than on the open board so
+   * the wrap has room underneath. Marks that would run past the upper half
+   * step back (`away`), as do ghosts. Reports where the column ends.
+   */
+  function columnAll() {
+    const w = field.clientWidth
+    const h = field.clientHeight
+    const order = columnOrder(prev?.marks ?? [])
+    const rank = new Map(order.map((m, i) => [m.id, i]))
+    let y = Math.max(22, Math.min(64, h * 0.09))
+    const limit = Math.max(y + 60, h * 0.48)
+    let full = false
+    for (const m of order) {
+      const el = live.get(m.id)
+      if (!el) continue
+      let size = columnFontPx(m.p, w < 640)
+      // Width at the new size, from the width now: the font size may be mid-transition, so it cannot simply be measured.
+      const nowPx = parseFloat(getComputedStyle(el).fontSize) || size
+      const width = (el.offsetWidth * size) / nowPx
+      if (width > w - 36) size = Math.max(13, Math.floor((size * (w - 36)) / width))
+      const row = size * (w < 640 ? 1.38 : 1.45)
+      if (full || (y + row > limit && rank.get(m.id)! > 0)) {
+        full = true
+        el.classList.add('away')
+        continue
+      }
+      el.classList.remove('away')
+      el.style.fontSize = `${size}px`
+      el.style.left = `${w / 2}px`
+      el.style.top = `${y + row / 2}px`
+      y += row
+    }
+    for (const [id, el] of live) if (!rank.has(id)) el.classList.add('away')
+    opts.onColumn?.(order.length ? y : null)
+  }
+
+  function gather(o?: { instant?: boolean }) {
+    gathered = true
+    field.classList.remove('slack')
+    field.classList.add('gathered')
+    if (o?.instant) field.classList.add('instant')
+    columnAll()
+    if (o?.instant) {
+      void field.offsetWidth
+      field.classList.remove('instant')
+    }
+  }
+
+  function release() {
+    if (!gathered) return
+    gathered = false
+    field.classList.remove('gathered')
+    for (const el of live.values()) el.classList.remove('away')
+    opts.onColumn?.(null)
+    if (prev) {
+      const p = prev
+      prev = null
+      apply(p)
     }
   }
 
@@ -171,8 +243,8 @@ export function createBoard(field: HTMLElement): Board {
     paintLit()
   }
 
-  function apply(s: ReadingSnapshot, opts?: { instant?: boolean }) {
-    const instant = !!opts?.instant
+  function apply(s: ReadingSnapshot, o?: { instant?: boolean }) {
+    const instant = !!o?.instant
     if (instant) field.classList.add('instant')
 
     const diff = diffReadings(prev, s)
@@ -232,13 +304,13 @@ export function createBoard(field: HTMLElement): Board {
       el.classList.toggle('lit', m.id === litId)
     }
 
+    prev = s
     // One separation pass over every live mark (real + ghost) so slot
     // placement's "first appearance" order can't leave two labels
-    // overlapping.
+    // overlapping. Gathered, the marks go to their column instead.
     settleAll(freshIds)
 
-    field.classList.toggle('slack', s.slack)
-    prev = s
+    field.classList.toggle('slack', s.slack && !gathered)
 
     if (instant) {
       void field.offsetWidth
@@ -254,7 +326,9 @@ export function createBoard(field: HTMLElement): Board {
     layout.reset()
     prev = null
     litId = null
-    field.classList.remove('slack', 'instant')
+    if (gathered) opts.onColumn?.(null)
+    gathered = false
+    field.classList.remove('slack', 'instant', 'gathered')
     seedGhosts(seeds)
   }
 
@@ -279,5 +353,5 @@ export function createBoard(field: HTMLElement): Board {
     tapCbs.push(cb)
   }
 
-  return { apply, seedGhosts, clearGhosts, setLit, reset, relayout, onTap }
+  return { apply, seedGhosts, clearGhosts, setLit, reset, relayout, gather, release, onTap }
 }

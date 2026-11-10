@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { band, clearingCeiling, prominenceFromFontPx, CLEAR_X, CLEAR_Y } from '../src/ui/board/dots'
+import { band, boxCeiling, clearingCeiling, prominenceFromFontPx, BOX_CLEAR, CLEAR_X, CLEAR_Y } from '../src/ui/board/dots'
 
 describe('clearingCeiling', () => {
   const halfW = 40, halfH = 12
@@ -42,5 +42,22 @@ describe('band', () => {
       if (Math.abs(v - band(x, y, i * 0.1 + 3)) > 0.01) moved = true
     }
     expect(moved).toBe(true)
+  })
+})
+
+describe('boxCeiling', () => {
+  const halfW = 240, halfH = 110
+  it('allows no dot behind a block of text or right against it', () => {
+    expect(boxCeiling(0, 0, halfW, halfH)).toBe(0)
+    expect(boxCeiling(halfW, -halfH, halfW, halfH)).toBe(0)
+    expect(boxCeiling(halfW + 6, 0, halfW, halfH)).toBe(0)
+  })
+  it('rises with distance from the edge and puts no limit beyond its reach', () => {
+    const near = boxCeiling(0, halfH + 20, halfW, halfH)
+    const far = boxCeiling(0, halfH + 45, halfW, halfH)
+    expect(near).toBeGreaterThan(0)
+    expect(far).toBeGreaterThan(near)
+    expect(boxCeiling(0, halfH + BOX_CLEAR, halfW, halfH)).toBe(Infinity)
+    expect(boxCeiling(halfW + BOX_CLEAR + 1, halfH + BOX_CLEAR + 1, halfW, halfH)).toBe(Infinity)
   })
 })

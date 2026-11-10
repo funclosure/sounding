@@ -8,6 +8,7 @@ import { snapshotOf, transcriptAt, laneSeries, ranked } from './board/model'
 import type { ReadingSnapshot } from './board/model'
 import { createBoard } from './board/board'
 import { createHeard } from './board/heard'
+import { columnOrder } from './board/layout'
 import { createDots } from './board/dots'
 import { createTranscript } from './board/transcript'
 import { createLanes } from './board/lanes'
@@ -42,9 +43,10 @@ const contextElD = document.getElementById('context-d') as HTMLElement
 const contextPopEl = document.getElementById('context-pop') as HTMLElement
 const ctxOpenBtn = document.getElementById('ctxopen') as HTMLButtonElement
 
-const board = createBoard(fieldEl)
+// the gathered column tells the wrap where to start
+const board = createBoard(fieldEl, { onColumn: (bottom) => (bottom === null ? screen.style.removeProperty('--wrap-top') : screen.style.setProperty('--wrap-top', `${Math.round(bottom + 18)}px`)) })
 const heard = createHeard(heardEl)
-const dots = createDots(document.getElementById('dots') as HTMLCanvasElement, { field: fieldEl, voice: big })
+const dots = createDots(document.getElementById('dots') as HTMLCanvasElement, { field: fieldEl, voice: big, clear: wrapEl })
 const transcript = createTranscript(transcriptEl)
 const lanes = createLanes(chartSvg)
 const transcriptD = createTranscript(transcriptElD)
@@ -93,7 +95,8 @@ const layout = {
     contextPop.close()
   },
   onSurfaced() {
-    this.showChart()
+    // On a phone the sheet would rise over the gathered board and the wrap; the chart stays one tap away there.
+    if (mq.matches) this.showChart()
   },
 }
 mq.addEventListener('change', () => {
@@ -215,6 +218,8 @@ function finish(statusText: string, opts?: { keepStatusClass?: boolean; keepSock
   else if (ws && ws.readyState === WebSocket.OPEN) ws.close()
   ws = null
   state = 'idle'
+  // the rings keep closing in only while a wrap is still being written
+  if (wrap?.state !== 'writing') dots.gather(false)
   big.disabled = false
   big.setAttribute('aria-label', 'Drop')
   if (opts?.keepStatusClass) {
@@ -337,8 +342,11 @@ function wrapHtml(text: string): string {
 }
 
 function renderWrap() {
-  wrapEl.hidden = !wrap || !wrapOpen
-  if (!wrap || !wrapOpen) { wrapEl.innerHTML = ''; return }
+  // a scrub puts the board back as it was at that moment; the wrap waits until the return
+  const shown = !!wrap && wrapOpen && !replaying
+  wrapEl.hidden = !shown
+  wrapEl.classList.toggle('editing', shown && wrapEditing && !!wrapPrompt)
+  if (!wrap || !shown) { wrapEl.innerHTML = ''; return }
   const act = (name: string, label: string, quiet = false) => `<button type="button" class="act${quiet ? ' quiet' : ''}" data-act="${name}">${label}</button>`
   if (wrapEditing && wrapPrompt) {
     wrapEl.innerHTML = `<form><p class="wl"><label for="wrap-prompt">how to wrap a sounding</label></p>
@@ -363,6 +371,7 @@ function onWrap(m: Extract<LiveMessage, { type: 'live.wrap' }>) {
     wrapPrompt = { text: m.prompt, isDefault: m.isDefaultPrompt }
   }
   wrapEditing = false
+  dots.gather(wrap.state === 'writing')
   renderWrap()
   renderHint()
 }
@@ -375,6 +384,7 @@ function sendWrap(msg: { type: 'rewrap' } | { type: 'wrap-prompt'; text: string 
   } else if (wrapPrompt) {
     wrap = { state: 'failed', message: 'the connection to the server has closed', prompt: wrapPrompt.text, isDefaultPrompt: wrapPrompt.isDefault }
   }
+  dots.gather(wrap?.state === 'writing')
   renderWrap()
 }
 
@@ -467,14 +477,31 @@ board.onTap(toggleFollow)
 lanes.onTapLane(toggleFollow)
 lanesD.onTapLane(toggleFollow)
 
-function flashWords(words: string[]) {
-  dots.heard(words.length)
-  heard.flash(words)
+// ---- the ending: between "stop" and the wrap the marks draw together into
+// one ranked column, the echo comes back in through the dots, and each mark
+// brightens in turn. The board stays gathered until the next sounding.
+let ended = false
+const endTimers: Array<ReturnType<typeof setTimeout>> = []
+function beginEnding() {
+  if (replaying) backToLive()
+  ended = true
+  heard.clear()
+  board.gather()
+  dots.gather(true)
+  const last = readings.at(-1)
+  if (last) columnOrder(last.marks).forEach((m, i) => endTimers.push(setTimeout(() => dots.pulse(m.id, false), 1700 + i * 260)))
+}
+function clearEnding() {
+  ended = false
+  for (const t of endTimers.splice(0)) clearTimeout(t)
+  dots.gather(false)
 }
 
 function onMessage(m: LiveMessage) {
   if (m.type === 'live.heard') {
-    if (!replaying) flashWords(m.words)
+    if (replaying || state !== 'live') return
+    dots.heard(m.words.length)
+    heard.say(m.line, m.text)
     return
   }
   if (m.type === 'live.status') {
@@ -566,6 +593,7 @@ function showAt(t: Ms) {
   const s = readings.filter((r) => r.t <= t).at(-1) ?? null
   board.reset()
   if (s) board.apply(s, { instant: true })
+  renderWrap()
   lastShown = s
   const tm = transcriptAt(events, t)
   transcript.render(tm, false)
@@ -582,6 +610,8 @@ function backToLive() {
   const s = readings.at(-1) ?? null
   board.reset()
   if (s) board.apply(s, { instant: true })
+  if (ended) board.gather({ instant: true })
+  renderWrap()
   lastShown = s
   const tm = transcriptAt(events, headT)
   transcript.render(tm, true)
@@ -682,6 +712,7 @@ async function start() {
   renaming = null
   clearUndo()
   clearWrap()
+  clearEnding()
   board.setLit(null)
   lanes.setLit(null)
   lanesD.setLit(null)
@@ -786,7 +817,8 @@ async function stop() {
   state = 'stopping'
   syncCtxOpenVisibility()
   big.disabled = true
-  setState('stopping…', false)
+  setState('surfacing…', false)
+  beginEnding()
   await teardownAudio()
   // `ws` may have been reset to null by a concurrent finish() (e.g. a
   // server error arriving mid-teardown) — act on the captured reference.
