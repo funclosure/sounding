@@ -16,6 +16,9 @@ import type { Transcriber } from './transcriber'
 import { WhisperTranscriber } from './whisper-transcriber'
 import { sharedWhisper, whisperLanguage } from './whisper-server'
 import type { FixtureScript } from '../replay/fixture'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { listEarlier, readEarlier, removeEarlier, isEarlierName } from './earlier'
 import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
 
 export const TRANSCRIBERS = ['gemini', 'whisper'] as const
@@ -125,6 +128,10 @@ export interface LiveDeps {
   wrap?: WrapWriter | null
   /** Where the speaker's wrap instructions are kept. */
   promptDir?: string
+  /** Where saved soundings are (for listing, opening and removing earlier ones). */
+  soundingsDir?: string
+  /** Where a removed sounding goes. Default: the user's Trash. */
+  trashDir?: string
 }
 
 /** One browser tab's live socket: start/stop/context/follow messages plus binary PCM. Shared with the always-on server. */
@@ -144,7 +151,8 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
     try {
       const text = await e.writer(once || prompt, e.material)
       if (run !== wrapRun) return // a newer request (changed instructions) supersedes this one
-      console.log(`wrote ${writeWrapFile(e.logPath, text)}`)
+      // only the plain wrap is kept beside the log; another reading is for the screen
+      if (!once) console.log(`wrote ${writeWrapFile(e.logPath, text)}`)
       send({ type: 'live.wrap', state: 'done', text, prompt, isDefaultPrompt: isDefault })
     } catch (err) {
       if (run !== wrapRun) return
@@ -190,7 +198,7 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
   }
   ws.on('message', async (data: Buffer, isBinary: boolean) => {
     if (isBinary) { live?.pushAudio(new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length - (data.length % 2)))); return }
-    let msg: { type?: string; interpreter?: string; transcriber?: unknown; label?: unknown; context?: unknown; text?: unknown; conceptId?: unknown }
+    let msg: { type?: string; name?: unknown; interpreter?: string; transcriber?: unknown; label?: unknown; context?: unknown; text?: unknown; conceptId?: unknown }
     try { msg = JSON.parse(data.toString('utf8')) } catch { return }
     if (msg.type === 'start' && !live && !starting) {
       let interpreter = args.interpreter
@@ -241,6 +249,32 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       const once = msg.text === undefined ? '' : validWrapPrompt(msg.text)
       if (once === null) { send({ type: 'live.status', state: 'warning', message: `wrap instructions must be text of at most ${WRAP_PROMPT_MAX_CHARS} characters, ignoring` }); return }
       await writeWrap(once)
+    } else if (msg.type === 'earlier') {
+      send({ type: 'live.earlier', items: listEarlier(deps.soundingsDir) })
+    } else if (msg.type === 'open') {
+      // An earlier sounding, put back as it ended. Not while one is being listened to on this connection.
+      if (live || starting || stopping || !isEarlierName(msg.name)) return
+      const e = readEarlier(msg.name, deps.soundingsDir)
+      if (!e) { send({ type: 'live.status', state: 'warning', message: 'that sounding is no longer there' }); send({ type: 'live.earlier', items: listEarlier(deps.soundingsDir) }); return }
+      const material = wrapMaterial(e.events)
+      const writer = deps.wrap !== undefined ? deps.wrap : subscriptionWrap()
+      wrapRun++ // a wrap still being written for the sounding shown before is no longer wanted
+      ended = writer && material.transcript ? { material, logPath: e.logPath, writer } : null
+      send({ type: 'live.opened', name: msg.name, events: e.events, said: !!ended })
+      if (!ended) return
+      if (e.wrap) { const { prompt, isDefault } = readWrapPrompt(deps.promptDir); send({ type: 'live.wrap', state: 'done', text: e.wrap, prompt, isDefaultPrompt: isDefault }) }
+      else await writeWrap()
+    } else if (msg.type === 'remove') {
+      if (live || starting || stopping || !isEarlierName(msg.name)) return
+      const dir = deps.soundingsDir ?? 'soundings'
+      let ok = false
+      try { ok = removeEarlier(msg.name, dir, deps.trashDir ?? join(homedir(), '.Trash')) } catch (err) { console.error(`[remove] ${errMsg(err)}`) }
+      if (ok) {
+        console.log(`moved ${msg.name} to the Trash`)
+        if (ended && ended.logPath === join(dir, msg.name)) { ended = null; wrapRun++ }
+      }
+      send({ type: 'live.removed', name: msg.name, ok })
+      send({ type: 'live.earlier', items: listEarlier(deps.soundingsDir) })
     } else if (msg.type === 'context') {
       // A `context` message can race a still-in-flight `start` (the
       // browser drops it as soon as the socket opens, before the session

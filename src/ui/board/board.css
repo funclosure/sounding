@@ -247,31 +247,46 @@ html.dark {
 /* Changing the instructions is a form, and a form gets its sheet of paper back, over the middle of the board. */
 .wrap.editing { top: 10px; bottom: 10px; margin-block: auto; height: fit-content; width: min(34rem, calc(100% - 36px)); max-height: calc(100% - 20px); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px 14px; text-shadow: none; }
 @keyframes wrap-in { from { opacity: 0; transform: translateY(8px); } }
-.wrap .wl { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.05em; color: var(--ink-quiet); margin: 0 0 10px; }
+:is(.wrap, .earlier) .wl { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.05em; color: var(--ink-quiet); margin: 0 0 10px; }
 .wrap .said { font-family: var(--serif); font-size: 16px; line-height: 1.6; color: var(--ink); }
 .wrap .said p { margin: 0 0 8px; }
 .wrap .said ul { margin: 0 0 8px; padding: 0; list-style: none; }
 .wrap .said li { position: relative; padding-left: 16px; margin: 0 0 4px; }
 .wrap .said li::before { content: ""; position: absolute; left: 2px; top: 0.72em; width: 5px; height: 5px; border-radius: 50%; background: var(--light); }
-.wrap .quiet { font-family: var(--serif); font-size: 15px; color: var(--ink-quiet); margin: 0 0 8px; }
-.wrap .acts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; position: sticky; bottom: 0; padding: 4px 0 3px; background: var(--paper); text-shadow: none; user-select: none; -webkit-user-select: none; }
-.wrap .act { all: unset; cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; color: var(--ink); border-bottom: 1px solid var(--light); }
-.wrap .act.quiet { color: var(--ink-quiet); border-bottom-color: transparent; font-size: 12px; margin: 0; }
-.wrap .act:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
+:is(.wrap, .earlier) .quiet { font-family: var(--serif); font-size: 15px; color: var(--ink-quiet); margin: 0 0 8px; }
+:is(.wrap, .earlier) .acts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; position: sticky; bottom: 0; padding: 4px 0 3px; background: var(--paper); text-shadow: none; user-select: none; -webkit-user-select: none; }
+:is(.wrap, .earlier) .act { all: unset; cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; color: var(--ink); border-bottom: 1px solid var(--light); }
+:is(.wrap, .earlier) .act.quiet { color: var(--ink-quiet); border-bottom-color: transparent; font-size: 12px; margin: 0; }
+:is(.wrap, .earlier) .act:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
 .wrap form { margin: 0; }
 /* What can follow the wrap: each choice is its name and, beside it, a line saying what it will do. */
 .wrap .next { display: grid; gap: 9px; text-shadow: none; user-select: none; -webkit-user-select: none; }
 .wrap .next.ruled { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-.wrap .opt { all: unset; cursor: pointer; display: grid; grid-template-columns: 10.5rem minmax(0, 1fr); align-items: baseline; gap: 0 12px; border-radius: 4px; }
-.wrap .opt b { justify-self: start; font-family: var(--mono); font-weight: 400; font-size: 12.5px; letter-spacing: 0.03em; color: var(--ink); border-bottom: 1px solid var(--light); }
-.wrap .opt span { font-family: var(--serif); font-size: 13.5px; line-height: 1.45; color: var(--ink-quiet); }
-.wrap .opt:hover span { color: var(--ink); }
-.wrap .opt:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); }
-.wrap .opt[aria-pressed="false"] b { color: var(--ink-quiet); border-bottom-color: transparent; }
+:is(.wrap, .earlier) .opt { all: unset; cursor: pointer; display: grid; grid-template-columns: 10.5rem minmax(0, 1fr); align-items: baseline; gap: 0 12px; border-radius: 4px; }
+:is(.wrap, .earlier) .opt b { justify-self: start; font-family: var(--mono); font-weight: 400; font-size: 12.5px; letter-spacing: 0.03em; color: var(--ink); border-bottom: 1px solid var(--light); }
+:is(.wrap, .earlier) .opt span { font-family: var(--serif); font-size: 13.5px; line-height: 1.45; color: var(--ink-quiet); }
+:is(.wrap, .earlier) .opt:hover span { color: var(--ink); }
+:is(.wrap, .earlier) .opt:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); }
+:is(.wrap, .earlier) .opt[aria-pressed="false"] b { color: var(--ink-quiet); border-bottom-color: transparent; }
 /* A question carried into the next sounding stays at the top of the board while it is answered. */
 .pinned { position: absolute; z-index: 3; top: 6px; left: 0; right: 0; margin: 0 auto; width: min(31rem, calc(100% - 48px)); text-align: center; font-family: var(--serif); font-size: 14.5px; line-height: 1.5; color: var(--ink-quiet); pointer-events: none; text-shadow: 0 0 3px var(--paper), 0 0 8px var(--paper); animation: wrap-in 900ms ease both; }
 .pinned[hidden] { display: none; }
 .hint .go { color: var(--ink); }
+/* Earlier soundings: one quiet word beside the circle, and a sheet of paper over the board listing them, newest first. */
+.controls { position: relative; }
+.earlierbtn { all: unset; cursor: pointer; position: absolute; top: 20px; left: calc(50% + 50px); font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; color: var(--ink-quiet); border-bottom: 1px solid transparent; transition: color 280ms ease, border-color 280ms ease; }
+.earlierbtn:hover { color: var(--ink); border-bottom-color: var(--light); }
+.earlierbtn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
+.earlierbtn[hidden] { display: none; }
+.screen > .earlier { grid-row: 2 / 3; grid-column: 1 / 2; }
+.earlier { position: absolute; z-index: 6; top: 10px; bottom: 10px; left: 0; right: 0; margin: auto; height: fit-content; width: min(34rem, calc(100% - 36px)); max-height: calc(100% - 20px); overflow-y: auto; box-sizing: border-box; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px 10px; animation: wrap-in 500ms ease both; }
+.earlier[hidden] { display: none; }
+.earlier ul { list-style: none; margin: 0; padding: 0; }
+.earlier li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 0 14px; padding: 8px 0; border-top: 1px solid var(--line); }
+@media (min-width: 720px) { .earlier .opt { grid-template-columns: 13.5rem minmax(0, 1fr); } }
+.earlier .opt b { border-bottom-color: transparent; white-space: nowrap; }
+.earlier .opt:hover b { border-bottom-color: var(--light); }
+.earlier li[aria-current="true"] .opt b { border-bottom-color: var(--whisper); }
 /* After a sounding the circle's own line comes first, right under it; bringing context steps down. */
 .controls.after .hint { order: 1; }
 .controls.after .ctxopen { order: 2; }
@@ -281,11 +296,11 @@ html.dark {
 @media (min-width: 720px) {
   /* the base rule above comes later in the file than the desktop grid, so the field's column has to be restated here too */
   .screen > .field, .screen > .wrap, .screen > .heard { grid-column: 2; }
-  .screen > .heard, .screen > .wrap, .screen > .pinned { grid-column: 2 / 3; }
+  .screen > .heard, .screen > .wrap, .screen > .pinned, .screen > .earlier { grid-column: 2 / 3; }
 }
 @media (max-width: 719.98px) {
   .wrap .said { font-size: 15px; line-height: 1.55; }
-  .wrap .opt { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  :is(.wrap, .earlier) .opt { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .hint .long { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
