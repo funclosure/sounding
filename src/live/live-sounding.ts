@@ -24,7 +24,7 @@ import type { Clock } from './clock'
 export type { InterpreterName }
 export type LiveMessage =
   | SoundingEvent
-  | { type: 'live.heard'; t: Ms; words: string[] }
+  | { type: 'live.heard'; t: Ms; words: string[]; /** the utterance so far, as the transcriber has it now */ text: string; /** counts utterances: a new number starts a new line */ line: number }
   | { type: 'live.status'; state: string; message?: string }
   // The wrap after a sounding ends. `writing` is sent before the `stopped` status, so the page knows to keep
   // the socket open for it; `done` carries the instructions it was written from, for the page's editor.
@@ -56,6 +56,8 @@ export class LiveSounding {
   private sent = 0
   private stopClock: (() => void) | null = null
   private stopIdle: (() => void) | null = null
+  /** The utterance being heard, counted from 0; a final closes it. */
+  private line = 0
   private stopped = false
   /**
    * Separate from `stopped`: onInterim/onFinal must keep running through
@@ -223,8 +225,7 @@ export class LiveSounding {
     // the log already has.
     const ops: Promise<void>[] = []
     if (pendingDelta) {
-      const words = heardWords(pendingDelta)
-      if (words.length) this.opts.send({ type: 'live.heard', t, words })
+      this.opts.send({ type: 'live.heard', t, words: heardWords(pendingDelta), text: text.trim(), line: this.line })
       ops.push(this.run(() => this.session.feedPending(t, pendingDelta)))
     }
     if (commit) ops.push(this.run(() => this.session.feedCommitted(commit.endT, commit)))
@@ -234,6 +235,7 @@ export class LiveSounding {
   private async onFinal(text: string): Promise<void> {
     if (this.callbacksClosed) return
     const { commit } = this.segmenter.onFinal(this.opts.clock.now(), text)
+    this.line++
     if (commit) await this.run(() => this.session.feedCommitted(commit.endT, commit))
   }
 

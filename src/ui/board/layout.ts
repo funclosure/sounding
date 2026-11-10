@@ -112,3 +112,14 @@ export function separate(items: Placed[], box: Box, iterations = 6, pad = 6): Pl
 
   return out
 }
+
+/** The gathered column's order: strongest first; equals keep the order they were given in. */
+export function columnOrder<T extends { p: number }>(marks: readonly T[]): T[] {
+  return marks.map((m, i) => ({ m, i })).sort((a, b) => b.m.p - a.m.p || a.i - b.i).map(({ m }) => m)
+}
+
+/** A mark's size in the gathered column: the open board's 15–46px drawn in to 15–34px, or 14–28px where the board is narrow. */
+export function columnFontPx(p: number, narrow = false): number {
+  const share = Math.min(0.5, Math.max(0, p))
+  return Math.round(narrow ? 14 + share * 28 : 15 + share * 38)
+}

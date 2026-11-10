@@ -276,3 +276,33 @@ describe('LiveSounding — context and follow', () => {
     }
   })
 })
+
+describe('LiveSounding — the heard line', () => {
+  it('sends the utterance so far with each interim, and a new line number after a final', async () => {
+    const clock = new Clock(10)
+    const transcriber = new StubTranscriber()
+    const messages: LiveMessage[] = []
+    const soundingId = 'live-test-heard-line.recurrence'
+    const live = new LiveSounding({ interpreterName: 'recurrence', transcriber, clock, send: (m) => messages.push(m), soundingId })
+    try {
+      await live.start()
+      const cbs = transcriber.cbs!
+      cbs.onInterim('so I')
+      cbs.onInterim('so I keep comparing myself')
+      cbs.onInterim('so I keep comparing myself') // nothing new: nothing sent
+      cbs.onFinal('So I keep comparing myself.')
+      cbs.onInterim('to my sister')
+      await clock.sleep(200)
+      const heard = messages.filter((m) => m.type === 'live.heard')
+      expect(heard.map((m) => [m.line, m.text, m.words])).toEqual([
+        [0, 'so I', []],
+        [0, 'so I keep comparing myself', ['keep', 'comparing', 'myself']],
+        [1, 'to my sister', ['sister']],
+      ])
+      await live.stop()
+    } finally {
+      const logPath = `soundings/${soundingId}.jsonl`
+      if (existsSync(logPath)) unlinkSync(logPath)
+    }
+  })
+})
