@@ -246,7 +246,8 @@ html.dark {
 .wrap textarea:focus-visible { outline: none; border-color: var(--whisper); box-shadow: 0 0 0 3px var(--halo); }
 .wrap .note { font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink-quiet); margin: 10px 0 0; }
 @media (min-width: 720px) {
-  .screen > .wrap { grid-column: 2; }
+  /* the base rule above comes later in the file than the desktop grid, so the field's column has to be restated here too */
+  .screen > .field, .screen > .wrap { grid-column: 2; }
 }
 @media (prefers-reduced-motion: reduce) {
   .wrap { animation: none; }
