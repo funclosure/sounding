@@ -14,6 +14,11 @@ export function isInterpreterName(x: unknown): x is InterpreterName {
   return typeof x === 'string' && (INTERPRETERS as readonly string[]).includes(x)
 }
 
+/** Interpreters that spend API credit (an API key), as opposed to local ones. */
+export function isPaidInterpreter(x: InterpreterName): boolean {
+  return x === 'gemini' || x === 'claude'
+}
+
 export function recordingPath(name: string): string {
   return `recordings/${name}.m4a`
 }

@@ -12,7 +12,8 @@
     "cast": "tsx src/cli/cast.ts",
     "compare": "tsx src/cli/compare.ts",
     "design": "node scripts/build-design.mjs",
-    "live": "tsx src/live/server.ts"
+    "live": "tsx src/live/server.ts",
+    "serve": "tsx src/serve/server.ts"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
