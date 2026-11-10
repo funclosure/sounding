@@ -28,6 +28,8 @@ const QUIET = 0.6
 const VIVID = 1.45
 const POINTER_REACH = 210
 const POINTER_PATCH = 150
+/** The pointer's share of its full effect when it is nowhere near a mark. */
+const POINTER_OPEN = 0.22
 const RING_LIFE_S = 2.6
 /** How far the clearing reaches past a label's box, in px. */
 export const CLEAR_X = 56
@@ -166,6 +168,10 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
     for (let i = rings.length - 1; i >= 0; i--) if (t - rings[i].born > RING_LIFE_S) rings.splice(i, 1)
     const live = [...pools.values()].filter((p) => p.life > 0.01)
     const amb = 0.3 + 1.25 * activity
+    // How much the pointer may stir: fully beside a mark, only a little out in the open field.
+    let beside = 0
+    for (const p of live) beside = Math.max(beside, p.life * Math.exp(-((px - p.x) ** 2 + (py - p.y) ** 2) / ((p.r + 110) ** 2)))
+    const stir = near * (POINTER_OPEN + (1 - POINTER_OPEN) * beside)
 
     g.clearRect(0, 0, W, H)
     const k = 1 - Math.exp(-dt / 0.28)
@@ -194,11 +200,12 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
           b = b + v - b * v
         }
         const close = near < 0.01 ? 0 : near * Math.exp(-((x - px) ** 2 + (y - py) ** 2) / (POINTER_REACH * POINTER_REACH))
-        b *= QUIET + (VIVID - QUIET) * close
+        const stirShare = near < 0.01 ? 0 : stir / near
+        b *= QUIET + (VIVID - QUIET) * close * stirShare
         // the pointer is itself a patch of the field, as on the site: every dot near it comes up, not only those already saying something
         if (close > 0) {
           const pd2 = (x - px) ** 2 + (y - py) ** 2
-          const v = 0.9 * near * Math.exp(-pd2 / (POINTER_PATCH * POINTER_PATCH)) * (0.82 + 0.18 * Math.sin(t * 1.1 + x * 0.013 - y * 0.009))
+          const v = 0.9 * stir * Math.exp(-pd2 / (POINTER_PATCH * POINTER_PATCH)) * (0.82 + 0.18 * Math.sin(t * 1.1 + x * 0.013 - y * 0.009))
           b = b + v - b * v
         }
         b = Math.min(b, ceiling)
