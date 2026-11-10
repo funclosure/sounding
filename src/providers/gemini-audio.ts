@@ -5,6 +5,7 @@
 import { mapCandidates } from './candidates'
 import { llmCost } from './pricing'
 import { hintBlock } from './hints'
+import { assertApiAllowed } from '../cli/env'
 import type { Interpreter, InterpreterInput, InterpretationResult } from '../interpret/port'
 import type { AudioSegment } from '../interpret/port'
 
@@ -88,6 +89,7 @@ export class GeminiAudioInterpreter implements Interpreter {
   private readonly apiKey: string
 
   constructor(apiKey = process.env.GEMINI_API_KEY ?? '') {
+    assertApiAllowed('the gemini interpreter (GEMINI_API_KEY)')
     if (!apiKey) throw new Error('GEMINI_API_KEY is not set — get one at aistudio.google.com')
     this.apiKey = apiKey
   }

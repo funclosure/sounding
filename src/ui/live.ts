@@ -13,6 +13,7 @@ import { createLanes } from './board/lanes'
 import { createSheet } from './board/sheet'
 import { createPanels } from './board/panels'
 import { createPopover } from './board/popover'
+import { LIVE_SOCKET_PATH } from '../live/socket-path'
 
 const screen = document.getElementById('screen') as HTMLElement
 const fieldEl = document.getElementById('field') as HTMLElement
@@ -98,11 +99,19 @@ mq.addEventListener('change', () => {
   board.relayout()
 })
 
-const port = new URLSearchParams(location.search).get('port') ?? '8787'
+// Same origin by default: the always-on server answers the socket at
+// LIVE_SOCKET_PATH itself, and in dev Vite proxies that path to `npm run live`.
+// ?port= keeps the old direct connection to a live server on this machine.
+const portParam = new URLSearchParams(location.search).get('port')
+const liveUrl = portParam
+  ? `ws://127.0.0.1:${portParam}`
+  : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${LIVE_SOCKET_PATH}`
 // No interpreter picker in this design (the prototype has none); ?interp=
 // preserves the old page's ability to override the server's default (`-i`)
 // without adding UI the brief doesn't call for.
 const interpParam = new URLSearchParams(location.search).get('interp')
+// Same for the transcriber: ?transcriber=gemini|whisper overrides the server's default for this tab.
+const transcriberParam = new URLSearchParams(location.search).get('transcriber')
 let ws: WebSocket | null = null
 let audio: AudioRig | null = null
 // Set as soon as getUserMedia resolves inside setupAudio, cleared once setupAudio
@@ -501,7 +510,7 @@ async function start() {
   sheet.showTab('transcript')
   if (sheet.get() !== 'peek') sheet.set('peek')
 
-  const socket = new WebSocket(`ws://127.0.0.1:${port}`)
+  const socket = new WebSocket(liveUrl)
   socket.binaryType = 'arraybuffer'
   // onerror never owns state — a socket error is always followed by a close
   // event (per the WebSocket spec), and onclose is the one place that decides
@@ -513,7 +522,7 @@ async function start() {
     if (mine !== gen) return // a stale socket from a session finish() already closed
     if (state === 'idle') return // already finished via a 'stopped' status
     if (sawError && opened) console.warn('live socket errored before closing')
-    finish(opened ? 'connection closed' : `cannot reach live server at ws://127.0.0.1:${port} — run: npm run live`)
+    finish(opened ? 'connection closed' : `cannot reach live server at ${liveUrl} — run: npm run live`)
   }
   socket.onmessage = (ev) => {
     try {
@@ -551,8 +560,9 @@ async function start() {
       return
     }
     audio = a
-    const startMsg: { type: 'start'; interpreter?: string; context?: string } = { type: 'start' }
+    const startMsg: { type: 'start'; interpreter?: string; transcriber?: string; context?: string } = { type: 'start' }
     if (interpParam) startMsg.interpreter = interpParam
+    if (transcriberParam) startMsg.transcriber = transcriberParam
     const ctx = contextText.trim()
     if (ctx) startMsg.context = ctx
     socket.send(JSON.stringify(startMsg))

@@ -1,5 +1,5 @@
-// Dev-only Vite plugin: lets the replay UI save a mic recording and cast it.
-// Localhost only (Vite's default listener). API keys never pass through here —
+// The replay UI's save-a-recording-and-cast routes: a Vite dev plugin, and the
+// same middleware for the always-on server. Both listen on localhost only. API keys never pass through here —
 // the cast CLI child process loads .env itself.
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,8 +15,10 @@ import {
   soundingPath,
   stampName,
   uniqueName,
+  isPaidInterpreter,
   type InterpreterName,
 } from './paths'
+import { apiAllowed, apiOffMessage } from '../cli/env'
 
 export function castArgv(name: string, interp: InterpreterName): string[] {
   return ['src/cli/cast.ts', recordingPath(name), '-i', interp]
@@ -124,6 +126,7 @@ export async function handleCast(req: IncomingMessage, res: ServerResponse): Pro
   const { name, interpreter } = body as { name?: unknown; interpreter?: unknown }
   if (!isValidRecordingName(name)) return sendJson(res, 400, { error: 'invalid name' })
   if (!isInterpreterName(interpreter)) return sendJson(res, 400, { error: 'invalid interpreter' })
+  if (isPaidInterpreter(interpreter) && !apiAllowed()) return sendJson(res, 403, { error: apiOffMessage(interpreter) })
   try {
     const r = await run(TSX_BIN, castArgv(name, interpreter))
     if (r.code !== 0) return sendJson(res, 500, { error: `${r.stderr.trim()}\nexit ${r.code}` })
@@ -147,19 +150,25 @@ function runHandler(
   })
 }
 
+/**
+ * The recording/cast routes as plain connect-style middleware, shared by the
+ * Vite dev plugin below and the always-on server (src/serve/server.ts).
+ */
+export function apiMiddleware(req: IncomingMessage, res: ServerResponse, next: () => void): void {
+  if (req.method !== 'POST') return next()
+  if (req.url !== '/api/recordings' && req.url !== '/api/cast') return next()
+  const allowed = isAllowedRequest(req.url, req.headers)
+  if (!allowed.ok) return sendJson(res, allowed.status, { error: allowed.error })
+  if (req.url === '/api/recordings') return runHandler(handleRecordingUpload, req, res)
+  return runHandler(handleCast, req, res)
+}
+
 export function soundingDevApi(): Plugin {
   return {
     name: 'sounding-dev-api',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (req.method !== 'POST') return next()
-        if (req.url !== '/api/recordings' && req.url !== '/api/cast') return next()
-        const allowed = isAllowedRequest(req.url, req.headers)
-        if (!allowed.ok) return sendJson(res, allowed.status, { error: allowed.error })
-        if (req.url === '/api/recordings') return runHandler(handleRecordingUpload, req, res)
-        return runHandler(handleCast, req, res)
-      })
+      server.middlewares.use(apiMiddleware)
     },
   }
 }

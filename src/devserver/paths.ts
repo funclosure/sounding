@@ -1,7 +1,8 @@
 // Pure name validation and path building for the dev-server API.
 // No I/O here; the plugin (api.ts) does the reading and spawning.
 
-export const INTERPRETERS = ['gemini', 'claude', 'recurrence'] as const
+// 'claude' is the API-key Claude; 'claude-sub' is the same extraction through the Claude Code login (subscription).
+export const INTERPRETERS = ['gemini', 'claude', 'claude-sub', 'recurrence'] as const
 export type InterpreterName = (typeof INTERPRETERS)[number]
 
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/
@@ -12,6 +13,11 @@ export function isValidRecordingName(name: unknown): name is string {
 
 export function isInterpreterName(x: unknown): x is InterpreterName {
   return typeof x === 'string' && (INTERPRETERS as readonly string[]).includes(x)
+}
+
+/** Interpreters that spend API credit (an API key), as opposed to local or subscription ones. */
+export function isPaidInterpreter(x: InterpreterName): boolean {
+  return x === 'gemini' || x === 'claude'
 }
 
 export function recordingPath(name: string): string {

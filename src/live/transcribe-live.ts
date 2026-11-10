@@ -2,6 +2,7 @@
 // shapes are in the slice-3 spec ("Facts"). Key lives in the URL, so this
 // runs only in the local Node process.
 import type { Transcriber, TranscriberCallbacks } from './transcriber'
+import { assertApiAllowed } from '../cli/env'
 
 export interface WebSocketLike {
   send(data: string): void
@@ -72,6 +73,7 @@ export class TranscribeLiveClient implements Transcriber {
   private readonly customVocabulary: string[]
 
   constructor(private readonly apiKey: string, opts: Options = {}) {
+    assertApiAllowed('Gemini Transcribe Live (GEMINI_API_KEY)')
     this.factory = opts.socketFactory ?? ((url) => new (globalThis as unknown as { WebSocket: new (url: string) => WebSocketLike }).WebSocket(url))
     this.sessionLimitMs = opts.sessionLimitMs ?? SESSION_LIMIT_MS
     this.setTimer = opts.setTimer ?? setTimeout

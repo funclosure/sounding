@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { mapCandidates } from './candidates'
 import { llmCost } from './pricing'
 import { hintBlock } from './hints'
+import { assertApiAllowed } from '../cli/env'
 import type { Interpreter, InterpreterInput, InterpretationResult, InterpretationHints } from '../interpret/port'
 
 const MODEL = 'claude-opus-5'
@@ -23,7 +24,7 @@ Guidance:
 - confidence (0 to 1): how sure you are the concept is real and correctly labeled. Be honest: a missing candidate costs less than a wrong one.
 - Return 0-8 candidates. Fewer, stronger candidates beat padding. Returning zero is fine for filler.`
 
-const CANDIDATES_SCHEMA = {
+export const CANDIDATES_SCHEMA = {
   type: 'object',
   properties: {
     candidates: {
@@ -56,7 +57,12 @@ export class ClaudeExtractionInterpreter implements Interpreter {
   readonly id = `claude-extraction/${MODEL}`
   readonly input = 'transcript' as const
   private readonly window: string[] = []
-  private readonly client = new Anthropic()
+  private readonly client: Anthropic
+
+  constructor() {
+    assertApiAllowed('the claude interpreter (ANTHROPIC_API_KEY)')
+    this.client = new Anthropic()
+  }
 
   async interpret(input: InterpreterInput): Promise<InterpretationResult> {
     if (input.kind !== 'transcript') throw new Error(`${this.id} interprets transcript input only`)
