@@ -4,22 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sounding — live</title>
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=IBM+Plex+Mono:wght@400;500&display=swap"
-    />
+    <script>
+      // The mood, as on funclosure.xyz: night when the device is in dark mode,
+      // otherwise the paper for the hour. Set before first paint; day is the fallback.
+      ;(function () {
+        var dark = matchMedia('(prefers-color-scheme: dark)')
+        function mood() {
+          var h = new Date().getHours()
+          return dark.matches ? 'dark' : h < 5 || h >= 20 ? 'dusk' : h < 9 ? 'dawn' : h < 16 ? 'day' : 'dusk'
+        }
+        function apply() {
+          var c = document.documentElement.classList
+          c.remove('dawn', 'day', 'dusk', 'dark')
+          c.add(mood())
+        }
+        apply()
+        dark.addEventListener('change', apply)
+      })()
+    </script>
     <link rel="stylesheet" href="/src/ui/board/board.css" />
     <style>
       html,
       body {
         height: 100%;
       }
+      html {
+        background: var(--paper);
+      }
       body {
         margin: 0;
         min-height: 100vh;
-        background: var(--page, var(--ground));
-        color: var(--page-ink, var(--ink));
-        font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--mono);
+        transition:
+          background-color var(--fade) ease,
+          color var(--fade) ease;
       }
 
       /* the board fills the viewport: no phone frame, the screen root is the page.
@@ -32,20 +52,9 @@
         position: relative;
         isolation: isolate;
         overflow: hidden;
-        background: var(--ground);
+        background: var(--paper);
         color: var(--ink);
         user-select: none;
-      }
-      .screen::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        z-index: 0;
-        pointer-events: none;
-        opacity: 0.55;
-        background:
-          radial-gradient(ellipse 60% 40% at 30% 35%, var(--ground-2) 0%, transparent 70%),
-          radial-gradient(ellipse 50% 45% at 72% 62%, var(--ground-2) 0%, transparent 70%);
       }
     </style>
   </head>

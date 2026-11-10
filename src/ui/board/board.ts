@@ -195,7 +195,6 @@ export function createBoard(field: HTMLElement): Board {
     for (const m of s.marks) {
       let el = live.get(m.id)
       const size = Math.round(15 + Math.min(0.5, m.p) * 62)
-      const wght = Math.round(320 + Math.min(0.5, m.p) * 760)
       const wasGhost = !!el && el.classList.contains('ghost')
       const fresh = !el || wasGhost
 
@@ -223,8 +222,8 @@ export function createBoard(field: HTMLElement): Board {
       }
 
       el.style.fontSize = `${size}px`
-      el.style.fontVariationSettings = `"opsz" 144, "wght" ${wght}, "SOFT" 60`
-      el.style.opacity = String(0.55 + Math.min(0.45, m.p))
+      // One weight throughout: size and ink strength carry prominence.
+      el.style.opacity = String(0.5 + Math.min(0.5, m.p))
       el.style.zIndex = String(Math.round(m.p * 100))
       if (fresh) freshIds.add(m.id)
       el.classList.toggle('lit', m.id === litId)
