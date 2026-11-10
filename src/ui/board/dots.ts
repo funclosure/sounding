@@ -4,7 +4,7 @@
 //   presence — a pool of dots gathers under each mark, larger with its prominence,
 //              brighter for a moment when the mark is supported again
 //   echo     — every heard word sends a ring out through the dots
-// It is quiet everywhere and turns vivid around the pointer. A dot with nothing
+// It is quiet everywhere and turns vivid around the pointer, which is a patch of the field itself. A dot with nothing
 // to say is not drawn, and each mark sits in a clearing so its label stays readable.
 // Wall clock allowed: this is decoration, never part of the reading.
 
@@ -27,6 +27,7 @@ const TAU = Math.PI * 2
 const QUIET = 0.6
 const VIVID = 1.45
 const POINTER_REACH = 210
+const POINTER_PATCH = 150
 const RING_LIFE_S = 2.6
 /** How far the clearing reaches past a label's box, in px. */
 export const CLEAR_X = 56
@@ -193,7 +194,14 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
           b = b + v - b * v
         }
         const close = near < 0.01 ? 0 : near * Math.exp(-((x - px) ** 2 + (y - py) ** 2) / (POINTER_REACH * POINTER_REACH))
-        b = Math.min(b * (QUIET + (VIVID - QUIET) * close), ceiling)
+        b *= QUIET + (VIVID - QUIET) * close
+        // the pointer is itself a patch of the field, as on the site: every dot near it comes up, not only those already saying something
+        if (close > 0) {
+          const pd2 = (x - px) ** 2 + (y - py) ** 2
+          const v = 0.9 * near * Math.exp(-pd2 / (POINTER_PATCH * POINTER_PATCH)) * (0.82 + 0.18 * Math.sin(t * 1.1 + x * 0.013 - y * 0.009))
+          b = b + v - b * v
+        }
+        b = Math.min(b, ceiling)
         // no resting grid: only around the pointer does every dot show
         b = Math.max(Math.min(0.06 * close, ceiling), b)
         b = eased[idx] += (b - eased[idx]) * k
