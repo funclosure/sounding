@@ -26,6 +26,11 @@ export type LiveMessage =
   | SoundingEvent
   | { type: 'live.heard'; t: Ms; words: string[] }
   | { type: 'live.status'; state: string; message?: string }
+  // The wrap after a sounding ends. `writing` is sent before the `stopped` status, so the page knows to keep
+  // the socket open for it; `done` carries the instructions it was written from, for the page's editor.
+  | { type: 'live.wrap'; state: 'writing' }
+  | { type: 'live.wrap'; state: 'done'; text: string; prompt: string; isDefaultPrompt: boolean }
+  | { type: 'live.wrap'; state: 'failed'; message: string; prompt: string; isDefaultPrompt: boolean }
 
 export interface LiveSoundingOptions {
   interpreterName: InterpreterName
@@ -160,6 +165,11 @@ export class LiveSounding {
     const r = result as { from: string; to: string; mergedInto: string | null } | null
     if (r) this.opts.transcriber.addVocabulary?.([r.to])
     return r
+  }
+
+  /** The sounding's log so far; complete once stop() has resolved. */
+  events(): readonly SoundingEvent[] {
+    return this.session.log.all()
   }
 
   /** Idempotent: a second call (e.g. an explicit stop racing ws close) returns the same result. */
