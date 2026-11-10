@@ -8,6 +8,7 @@ import { snapshotOf, transcriptAt, laneSeries, ranked } from './board/model'
 import type { ReadingSnapshot } from './board/model'
 import { createBoard } from './board/board'
 import { createHeard } from './board/heard'
+import { createDots } from './board/dots'
 import { createTranscript } from './board/transcript'
 import { createLanes } from './board/lanes'
 import { createSheet } from './board/sheet'
@@ -43,6 +44,7 @@ const ctxOpenBtn = document.getElementById('ctxopen') as HTMLButtonElement
 
 const board = createBoard(fieldEl)
 const heard = createHeard(heardEl)
+const dots = createDots(document.getElementById('dots') as HTMLCanvasElement, { field: fieldEl, voice: big })
 const transcript = createTranscript(transcriptEl)
 const lanes = createLanes(chartSvg)
 const transcriptD = createTranscript(transcriptElD)
@@ -466,6 +468,7 @@ lanes.onTapLane(toggleFollow)
 lanesD.onTapLane(toggleFollow)
 
 function flashWords(words: string[]) {
+  dots.heard(words.length)
   heard.flash(words)
 }
 
@@ -530,6 +533,8 @@ function showLive(m: SoundingEvent) {
   if (m.type === 'reading.changed') {
     const s = snapshotOf(m)
     board.apply(s)
+    // a mark that just arrived or gained ground: its pool in the field brightens and rings
+    for (const tr of m.transitions) if (tr.kind === 'appeared' || (tr.kind === 'nudged' && tr.delta > 0)) dots.pulse(tr.conceptId)
     lastShown = s
     slackWord(s.slack)
   }
