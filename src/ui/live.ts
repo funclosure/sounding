@@ -325,20 +325,27 @@ let wrapWs: WebSocket | null = null
 // the instructions as last reported by the server, kept across a rewrite so the editor always has them
 let wrapPrompt: { text: string; isDefault: boolean } | null = null
 
-/** Plain text with "- " bullets → paragraphs and lists. */
-function wrapHtml(text: string): string {
+/** How far apart the words of a fresh wrap arrive (ms); the CSS multiplies it by each word's place. */
+const WORD_EVERY_MS = 45
+// the text already shown once: a wrap comes word by word only the first time it is seen
+let wrapRevealed: string | null = null
+
+/** Plain text with "- " bullets → paragraphs and lists, every word in a span numbered in reading order. */
+function wrapHtml(text: string): { html: string; words: number } {
   const out: string[] = []
   let items: string[] = []
+  let n = 0
+  const words = (line: string) => line.split(/\s+/).filter(Boolean).map((w) => `<span class="w" style="--i:${n++}">${escapeHtml(w)}</span>`).join(' ')
   const flushItems = () => { if (items.length) { out.push(`<ul>${items.join('')}</ul>`); items = [] } }
   for (const raw of text.split('\n')) {
     const line = raw.trim()
     if (!line) { flushItems(); continue }
     const bullet = /^[-•*]\s+(.*)$/.exec(line)
-    if (bullet) items.push(`<li>${escapeHtml(bullet[1])}</li>`)
-    else { flushItems(); out.push(`<p>${escapeHtml(line)}</p>`) }
+    if (bullet) items.push(`<li style="--i:${n}">${words(bullet[1])}</li>`)
+    else { flushItems(); out.push(`<p>${words(line)}</p>`) }
   }
   flushItems()
-  return out.join('')
+  return { html: out.join(''), words: n }
 }
 
 function renderWrap() {
@@ -355,9 +362,15 @@ function renderWrap() {
       <div class="acts"><button type="submit" class="act">save and rewrite</button>${wrapPrompt.isDefault ? '' : act('default', 'back to the default', true)}${act('cancel', 'cancel', true)}</div></form>`
     return
   }
-  const head = `<p class="wl">what I heard</p>`
-  if (wrap.state === 'writing') wrapEl.innerHTML = `${head}<p class="quiet">listening back…</p>`
-  else if (wrap.state === 'done') wrapEl.innerHTML = `${head}<div class="said">${wrapHtml(wrap.text)}</div><div class="acts">${act('copy', 'copy')}${act('adjust', 'adjust', true)}${act('hide', 'hide', true)}</div>`
+  const head = `<p class="wl">I hear you…</p>`
+  if (wrap.state === 'writing') wrapEl.innerHTML = head
+  else if (wrap.state === 'done') {
+    const said = wrapHtml(wrap.text)
+    const fresh = wrapRevealed !== wrap.text
+    wrapRevealed = wrap.text
+    wrapEl.style.setProperty('--word-every', `${WORD_EVERY_MS}ms`)
+    wrapEl.innerHTML = `${head}<div class="said${fresh ? ' arriving' : ''}">${said.html}</div><div class="acts${fresh ? ' arriving' : ''}" style="--i:${said.words}">${act('copy', 'copy')}${act('adjust', 'adjust', true)}${act('hide', 'hide', true)}</div>`
+  }
   else wrapEl.innerHTML = `${head}<p class="quiet">It didn’t come through: ${escapeHtml(wrap.message)}</p><div class="acts">${act('again', 'try again')}${act('adjust', 'adjust', true)}${act('hide', 'hide', true)}</div>`
 }
 
@@ -392,6 +405,7 @@ function clearWrap() {
   if (wrapWs && wrapWs.readyState === WebSocket.OPEN) wrapWs.close()
   wrapWs = null
   wrap = null
+  wrapRevealed = null
   wrapOpen = false
   wrapEditing = false
   renderWrap()

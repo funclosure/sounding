@@ -241,7 +241,9 @@ html.dark {
    Placed absolutely in the board's cell, so however long it runs it scrolls inside the cell instead of stretching the row. */
 .screen > .wrap { grid-row: 2 / 3; grid-column: 1 / 2; }
 .wrap { position: absolute; z-index: 5; top: var(--wrap-top, 22vh); left: 0; right: 0; margin-inline: auto; width: min(31rem, calc(100% - 48px)); max-height: calc(100% - var(--wrap-top, 22vh) - 6px); overflow-y: auto; user-select: text; -webkit-user-select: text; text-shadow: 0 0 3px var(--paper), 0 0 8px var(--paper), 0 0 14px var(--paper); transition: top 0.9s ease; animation: wrap-in 1100ms ease both; }
-.wrap .said { animation: wrap-in 1100ms ease both; }
+/* A fresh wrap comes one word at a time, in reading order (--i is the word's place); the actions follow the last word. */
+.wrap .arriving .w, .wrap .said.arriving li::before, .wrap .acts.arriving { opacity: 0; animation: word-in 520ms ease forwards; animation-delay: calc(var(--i) * var(--word-every, 45ms)); }
+@keyframes word-in { from { opacity: 0; } to { opacity: 1; } }
 /* Changing the instructions is a form, and a form gets its sheet of paper back, over the middle of the board. */
 .wrap.editing { top: 10px; bottom: 10px; margin-block: auto; height: fit-content; width: min(34rem, calc(100% - 36px)); max-height: calc(100% - 20px); background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px 14px; text-shadow: none; }
 @keyframes wrap-in { from { opacity: 0; transform: translateY(8px); } }
@@ -269,7 +271,8 @@ html.dark {
   .wrap .said { font-size: 15px; line-height: 1.55; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .wrap, .wrap .said { animation: none; transition: none; }
+  .wrap { animation: none; transition: none; }
+  .wrap .arriving .w, .wrap .said.arriving li::before, .wrap .acts.arriving { opacity: 1; animation: none; }
   .field.gathered .mark { transition: none; }
 }
 
