@@ -8,6 +8,10 @@ import type { ConceptCandidate, Ms } from '../core/types'
 export interface InterpretationHints {
   context?: string
   follow?: string
+  /** Labels the speaker corrected, oldest first. */
+  corrections?: Array<{ from: string; to: string }>
+  /** Labels the speaker dismissed as wrong. */
+  dismissed?: string[]
 }
 
 export interface Transcript {

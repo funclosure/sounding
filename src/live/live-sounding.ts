@@ -136,6 +136,32 @@ export class LiveSounding {
     return { label }
   }
 
+  /** The speaker dismisses a mark as wrong. Resolves to its label, or null for an id this sounding doesn't have live. */
+  async dismiss(conceptId: string): Promise<string | null> {
+    if (this.callbacksClosed) return null
+    let label: string | null = null
+    await this.run(async () => { label = await this.session.dismissMark(this.opts.clock.now(), conceptId) })
+    return label
+  }
+
+  /** Undo of dismiss. */
+  async restore(conceptId: string): Promise<string | null> {
+    if (this.callbacksClosed) return null
+    let label: string | null = null
+    await this.run(async () => { label = await this.session.restoreMark(this.opts.clock.now(), conceptId) })
+    return label
+  }
+
+  /** The speaker corrects a mark's label; the corrected spelling also goes to the transcriber when it can take it. */
+  async rename(conceptId: string, label: string): Promise<{ from: string; to: string; mergedInto: string | null } | null> {
+    if (this.callbacksClosed) return null
+    let result: { from: string; to: string; mergedInto: string | null } | null = null
+    await this.run(async () => { result = await this.session.renameMark(this.opts.clock.now(), conceptId, label) })
+    const r = result as { from: string; to: string; mergedInto: string | null } | null
+    if (r) this.opts.transcriber.addVocabulary?.([r.to])
+    return r
+  }
+
   /** Idempotent: a second call (e.g. an explicit stop racing ws close) returns the same result. */
   stop(): Promise<{ logPath: string; summary: string }> {
     if (!this.stopPromise) this.stopPromise = this.doStop()

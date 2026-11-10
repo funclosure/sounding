@@ -18,7 +18,7 @@ export class TokenIdentityResolver implements IdentityResolver {
   async resolve(candidate: ConceptCandidate, concepts: readonly Concept[]): Promise<string | null> {
     const key = normalizeLabel(candidate.label)
     for (const c of concepts) {
-      if (normalizeLabel(c.label) === key) return c.id
+      if (normalizeLabel(c.label) === key || (c.aliases ?? []).some((a) => normalizeLabel(a) === key)) return c.id
     }
     return null
   }

@@ -18,6 +18,10 @@ export interface Concept {
   confidence: number // max confidence ever seen
   firstSeenT: Ms
   lastSupportT: Ms
+  /** Earlier labels of a renamed (or merged-in) concept. Identity still matches them, so the next mishearing lands here. */
+  aliases?: string[]
+  /** The speaker dismissed it: never surfaces, and candidates that resolve to it are dropped. */
+  dismissed?: boolean
 }
 
 /** One mark on the chart. prominence is field-relative (sums to 1 across marks). */
@@ -39,4 +43,8 @@ export type Transition =
   | { kind: 'appeared'; conceptId: string; label: string }
   | { kind: 'nudged'; conceptId: string; delta: number }
   | { kind: 'displaced'; conceptId: string; label: string; byConceptId: string }
-  | { kind: 'merged'; fromConceptId: string; intoConceptId: string } // unused until embedding resolver (slice 2); type reserved
+  // a rename whose new label is another concept's: `from` is absorbed into `into`
+  | { kind: 'merged'; fromConceptId: string; intoConceptId: string }
+  | { kind: 'dismissed'; conceptId: string; label: string }
+  | { kind: 'restored'; conceptId: string; label: string }
+  | { kind: 'renamed'; conceptId: string; from: string; to: string }
