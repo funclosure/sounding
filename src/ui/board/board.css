@@ -294,6 +294,13 @@ html.dark {
 .earlier .opt b { border-bottom-color: transparent; white-space: nowrap; }
 .earlier .opt:hover b { border-bottom-color: var(--light); }
 .earlier li[aria-current="true"] .opt b { border-bottom-color: var(--whisper); }
+/* How this is set up: the state word in the top corner opens it. Read, not pressed: each row is a name and a line. */
+.setup li { grid-template-columns: 10.5rem minmax(0, 1fr); gap: 0 12px; }
+.setup li b { font-family: var(--mono); font-weight: 400; font-size: 12.5px; letter-spacing: 0.03em; color: var(--ink); }
+.setup li span { font-family: var(--serif); font-size: 13.5px; line-height: 1.45; color: var(--ink-quiet); }
+#state { border-bottom: 1px solid transparent; transition: color 280ms ease, border-color 280ms ease; }
+#state:hover, #state[aria-expanded="true"] { color: var(--ink); }
+#state:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
 /* Removing is a small cross at the row's end, faint until the row is under the hand; the first tap asks, the second removes. */
 .earlier .x { all: unset; cursor: pointer; position: relative; font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; line-height: 1; color: var(--whisper); padding: 2px 2px; border-radius: 4px; transition: color 280ms ease; }
 .earlier .x::before { content: ""; position: absolute; inset: -9px -10px; }
@@ -313,6 +320,7 @@ html.dark {
 @media (max-width: 719.98px) {
   .wrap .said { font-size: 15px; line-height: 1.55; }
   :is(.wrap, .earlier) .opt { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .setup li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .hint .long { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
