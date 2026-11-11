@@ -1,4 +1,7 @@
-import { SlotLayout, separate, columnOrder, columnFontPx } from './layout'
+import { SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, BESIDE_MIN_W } from './layout'
+
+/** Where the gathered words ended up, for the reading to take its place: under them (`bottom`), or beside them (`left`, `width`). */
+export type Column = { bottom: number } | { left: number; width: number }
 import type { Placed } from './layout'
 import { diffReadings } from './model'
 import type { ReadingSnapshot } from './model'
@@ -30,7 +33,7 @@ const ARRIVE_MS = 2700
  * out per `diffReadings`. Ported from the prototype's `applyReading`/
  * `showGhosts`/`follow` (docs/design/sounding-phone.template.html).
  */
-export function createBoard(field: HTMLElement, opts: { onColumn?: (bottom: number | null) => void } = {}): Board {
+export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Column | null) => void } = {}): Board {
   const layout = new SlotLayout()
   const live = new Map<string, HTMLElement>()
   let prev: ReadingSnapshot | null = null
@@ -128,8 +131,9 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (bottom: numb
     const h = field.clientHeight
     const order = columnOrder(prev?.marks ?? [])
     const rank = new Map(order.map((m, i) => [m.id, i]))
+    if (w >= BESIDE_MIN_W && order.length) return besideAll(order, w, h)
     let y = Math.max(22, Math.min(64, h * 0.09))
-    const limit = Math.max(y + 60, h * 0.48)
+    const limit = Math.max(y + 60, h * 0.44)
     let full = false
     for (const m of order) {
       const el = live.get(m.id)
@@ -152,7 +156,44 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (bottom: numb
       y += row
     }
     for (const [id, el] of live) if (!rank.has(id)) el.classList.add('away')
-    opts.onColumn?.(order.length ? y : null)
+    opts.onColumn?.(order.length ? { bottom: y } : null)
+  }
+
+  /**
+   * A wide board: the same ranked column, right-aligned on the left and centred top to bottom,
+   * so the reading can stand beside it instead of under it. Reports where the reading goes.
+   */
+  function besideAll(order: Array<{ id: string; p: number }>, w: number, h: number) {
+    const room = besideRoom(w)
+    const limit = h - 28
+    const rows: Array<{ el: HTMLElement; size: number; width: number; row: number }> = []
+    let total = 0
+    let full = false
+    const kept = new Set<string>()
+    for (const m of order) {
+      const el = live.get(m.id)
+      if (!el) continue
+      let size = columnFontPx(m.p, false)
+      const nowPx = parseFloat(getComputedStyle(el).fontSize) || size
+      let width = (el.offsetWidth * size) / nowPx
+      if (width > room.words) { const fitted = Math.max(13, Math.floor((size * room.words) / width)); width = (width * fitted) / size; size = fitted }
+      const row = size * 1.34
+      if (full || (total + row > limit && rows.length > 0)) { full = true; el.classList.add('away'); continue }
+      rows.push({ el, size, width, row })
+      kept.add(m.id)
+      total += row
+    }
+    const plan = besidePlan(w, Math.max(...rows.map((r) => r.width)))
+    let y = (h - total) / 2
+    for (const r of rows) {
+      r.el.classList.remove('away')
+      r.el.style.fontSize = `${r.size}px`
+      r.el.style.left = `${plan.edge - r.width / 2}px`
+      r.el.style.top = `${y + r.row / 2}px`
+      y += r.row
+    }
+    for (const [id, el] of live) if (!kept.has(id)) el.classList.add('away')
+    opts.onColumn?.({ left: plan.left, width: plan.width })
   }
 
   function gather(o?: { instant?: boolean }) {

@@ -118,8 +118,28 @@ export function columnOrder<T extends { p: number }>(marks: readonly T[]): T[] {
   return marks.map((m, i) => ({ m, i })).sort((a, b) => b.m.p - a.m.p || a.i - b.i).map(({ m }) => m)
 }
 
-/** A mark's size in the gathered column: the open board's 15–46px drawn in to 15–34px, or 14–28px where the board is narrow. */
+/** A mark's size in the gathered column: the open board's 15–46px drawn in to 15–34px, or 13–24px where the board is narrow. */
 export function columnFontPx(p: number, narrow = false): number {
   const share = Math.min(0.5, Math.max(0, p))
-  return Math.round(narrow ? 14 + share * 28 : 15 + share * 38)
+  return Math.round(narrow ? 13 + share * 22 : 15 + share * 38)
+}
+
+/** From this width up the board is wide enough to put the gathered words and the reading side by side. */
+export const BESIDE_MIN_W = 760
+export const BESIDE_GAP = 36
+const BESIDE_READING_MAX = 496
+const BESIDE_MARGIN = 24
+/** The reading's width when it sits beside the words, and how wide the words' column may then be. */
+export function besideRoom(w: number): { reading: number; words: number } {
+  const reading = Math.min(BESIDE_READING_MAX, Math.round(w * 0.5))
+  return { reading, words: Math.max(120, w - reading - BESIDE_GAP * 2 - BESIDE_MARGIN * 2) }
+}
+/**
+ * Side by side: the words right-aligned against `edge`, a hairline one gap further on, the reading one gap after that.
+ * The pair is centred in the board as one thing. `widest` is the widest word, already fitted to `besideRoom(w).words`.
+ */
+export function besidePlan(w: number, widest: number): { edge: number; left: number; width: number } {
+  const { reading } = besideRoom(w)
+  const edge = Math.round((w - (widest + BESIDE_GAP * 2 + reading)) / 2 + widest)
+  return { edge, left: edge + BESIDE_GAP, width: reading + BESIDE_GAP }
 }
