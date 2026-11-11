@@ -54,7 +54,8 @@ html.dark {
 .screen.listening .status .dot { background: var(--light); animation: breathe 3.2s ease-in-out infinite; }
 .screen.slack .status .dot { background: var(--whisper); animation: none; }
 .status .clock { justify-self: center; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink-quiet); letter-spacing: 0.05em; }
-.status .counters { justify-self: end; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: 0.04em; color: var(--whisper); }
+.status .corner { justify-self: end; min-width: 0; max-width: 100%; display: flex; justify-content: flex-end; }
+.status .counters { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; letter-spacing: 0.04em; color: var(--whisper); }
 #state { cursor: pointer; }
 @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: 0.6; } }
 @media (prefers-reduced-motion: reduce) {
@@ -272,21 +273,32 @@ html.dark {
 .pinned { position: absolute; z-index: 3; top: 6px; left: 0; right: 0; margin: 0 auto; width: min(31rem, calc(100% - 48px)); text-align: center; font-family: var(--serif); font-size: 14.5px; line-height: 1.5; color: var(--ink-quiet); pointer-events: none; text-shadow: 0 0 3px var(--paper), 0 0 8px var(--paper); animation: wrap-in 900ms ease both; }
 .pinned[hidden] { display: none; }
 .hint .go { color: var(--ink); }
-/* Earlier soundings: one quiet word beside the circle, and a sheet of paper over the board listing them, newest first. */
-.controls { position: relative; }
-.earlierbtn { all: unset; cursor: pointer; position: absolute; top: 20px; left: calc(50% + 50px); font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; color: var(--ink-quiet); border-bottom: 1px solid transparent; transition: color 280ms ease, border-color 280ms ease; }
-.earlierbtn:hover { color: var(--ink); border-bottom-color: var(--light); }
+/* Where things live. The circle is the only button, alone on the centre line. Under it, one line of words.
+   Places are at the edges: transcript left, chart right, earlier soundings in the top corner, where the counters sit while a sounding runs.
+   In a list the row is the control; nothing else in a row carries a label. */
+.earlierbtn { all: unset; cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: 0.05em; color: var(--ink-quiet); border-bottom: 1px solid transparent; transition: color 280ms ease, border-color 280ms ease; }
+.earlierbtn::before { content: ""; position: absolute; inset: -12px -14px; }
+.earlierbtn { position: relative; }
+.earlierbtn:hover, .earlierbtn[aria-expanded="true"] { color: var(--ink); }
+.earlierbtn:hover { border-bottom-color: var(--light); }
 .earlierbtn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
-.earlierbtn[hidden] { display: none; }
+.earlierbtn[hidden], .counters[hidden] { display: none; }
 .screen > .earlier { grid-row: 2 / 3; grid-column: 1 / 2; }
-.earlier { position: absolute; z-index: 6; top: 10px; bottom: 10px; left: 0; right: 0; margin: auto; height: fit-content; width: min(34rem, calc(100% - 36px)); max-height: calc(100% - 20px); overflow-y: auto; box-sizing: border-box; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px 10px; animation: wrap-in 500ms ease both; }
+.earlier { position: absolute; z-index: 6; top: 10px; bottom: 10px; left: 0; right: 0; margin: auto; height: fit-content; width: min(34rem, calc(100% - 36px)); max-height: calc(100% - 20px); overflow-y: auto; box-sizing: border-box; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px 8px; animation: wrap-in 500ms ease both; }
 .earlier[hidden] { display: none; }
+/* the list takes the board while it is open: the wrap waits behind it, unseen */
+.earlier:not([hidden]) ~ .wrap { visibility: hidden; }
 .earlier ul { list-style: none; margin: 0; padding: 0; }
 .earlier li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 0 14px; padding: 8px 0; border-top: 1px solid var(--line); }
 @media (min-width: 720px) { .earlier .opt { grid-template-columns: 13.5rem minmax(0, 1fr); } }
 .earlier .opt b { border-bottom-color: transparent; white-space: nowrap; }
 .earlier .opt:hover b { border-bottom-color: var(--light); }
 .earlier li[aria-current="true"] .opt b { border-bottom-color: var(--whisper); }
+/* Removing is a small cross at the row's end, faint until the row is under the hand; the first tap asks, the second removes. */
+.earlier .x { all: unset; cursor: pointer; position: relative; font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; line-height: 1; color: var(--whisper); padding: 2px 2px; border-radius: 4px; transition: color 280ms ease; }
+.earlier .x::before { content: ""; position: absolute; inset: -9px -10px; }
+.earlier li:hover .x, .earlier .x:focus-visible, .earlier .x.sure { color: var(--ink); }
+.earlier .x:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); }
 /* After a sounding the circle's own line comes first, right under it; bringing context steps down. */
 .controls.after .hint { order: 1; }
 .controls.after .ctxopen { order: 2; }

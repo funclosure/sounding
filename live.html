@@ -73,7 +73,10 @@
       <div class="status">
         <div class="state"><span class="dot"></span><span id="state" role="button" tabindex="0">ready</span></div>
         <div class="clock" id="clock">0:00</div>
-        <div class="counters" id="counters"></div>
+        <div class="corner">
+          <span class="counters" id="counters"></span>
+          <button class="earlierbtn" id="earlierbtn" aria-expanded="false" aria-controls="earlier">earlier</button>
+        </div>
       </div>
 
       <div class="field" id="field"></div>
@@ -84,7 +87,6 @@
 
       <div class="controls">
         <button class="big" id="big" aria-label="Drop"><i></i></button>
-        <button class="earlierbtn" id="earlierbtn">earlier</button>
         <button class="ctxopen" id="ctxopen">bring context</button>
         <div class="hint" id="hint"></div>
       </div>
