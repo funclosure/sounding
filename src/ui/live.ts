@@ -54,7 +54,22 @@ const contextPopEl = document.getElementById('context-pop') as HTMLElement
 const ctxOpenBtn = document.getElementById('ctxopen') as HTMLButtonElement
 
 // the gathered column tells the wrap where to start
-const board = createBoard(fieldEl, { onColumn: (bottom) => (bottom === null ? screen.style.removeProperty('--wrap-top') : screen.style.setProperty('--wrap-top', `${Math.round(bottom + 18)}px`)) })
+// On a wide board the reading stands beside the gathered words, with what can follow under it.
+// Anywhere narrower it goes under them and has two pages: the reading, then what next.
+let beside = false
+let wrapPage: 0 | 1 = 0
+const board = createBoard(fieldEl, {
+  onColumn: (c) => {
+    const was = beside
+    beside = !!c && 'left' in c
+    screen.classList.toggle('beside', beside)
+    const set = (name: string, px: number | null) => (px === null ? screen.style.removeProperty(name) : screen.style.setProperty(name, `${Math.round(px)}px`))
+    set('--wrap-top', c && 'bottom' in c ? c.bottom + 18 : null)
+    set('--wrap-left', c && 'left' in c ? c.left : null)
+    set('--wrap-w', c && 'left' in c ? c.width : null)
+    if (was !== beside) renderWrap()
+  },
+})
 const heard = createHeard(heardEl)
 const dots = createDots(document.getElementById('dots') as HTMLCanvasElement, { field: fieldEl, voice: big, clear: wrapEl })
 const transcript = createTranscript(transcriptEl)
@@ -414,7 +429,13 @@ function renderWrap() {
     const arriving = !wrapRevealed.has(wrap.text)
     wrapRevealed.add(wrap.text)
     wrapEl.style.setProperty('--word-every', `${WORD_EVERY_MS}ms`)
-    wrapEl.innerHTML = `${head}<div class="said${arriving ? ' arriving' : ''}">${said.html}</div><div class="next ruled${arriving ? ' arriving' : ''}" style="--i:${said.words}">${others}${opt('note', 'copy as a note', 'The words and the wrap, ready to paste.')}${fresh}</div>`
+    const choices = `${others}${opt('note', 'copy as a note', 'The words and the wrap, ready to paste.')}${fresh}`
+    const late = `${arriving ? ' arriving' : ''}" style="--i:${said.words}`
+    // the marker under a page says there are two, which one this is, and leads to the other
+    const marker = (page: 0 | 1) => `<div class="marker${page === 0 ? late : ''}"><button type="button" class="go" data-act="page:0"${page === 0 ? ' disabled' : ''}>← the reading</button><span class="pips" aria-hidden="true"><i${page === 0 ? ' class="on"' : ''}></i><i${page === 1 ? ' class="on"' : ''}></i></span><button type="button" class="go" data-act="page:1"${page === 1 ? ' disabled' : ''}>what next →</button></div>`
+    if (beside) wrapEl.innerHTML = `${head}<div class="said${arriving ? ' arriving' : ''}">${said.html}</div><div class="next ruled${late}">${choices}</div>`
+    else if (wrapPage === 0) wrapEl.innerHTML = `${head}<div class="said${arriving ? ' arriving' : ''}">${said.html}</div>${marker(0)}`
+    else wrapEl.innerHTML = `<p class="wl">what next</p><div class="next">${choices}</div>${marker(1)}`
   }
   else wrapEl.innerHTML = `${head}<p class="quiet">It didn’t come through: ${escapeHtml(wrap.message)}</p><div class="next ruled">${opt('again', 'try again', 'Ask for the same reading once more.')}${others}${fresh}</div>`
 }
@@ -435,6 +456,7 @@ function onWrap(m: Extract<LiveMessage, { type: 'live.wrap' }>) {
     wrap = m
   }
   wrapEditing = false
+  wrapPage = 0
   dots.gather(wrap.state === 'writing')
   renderWrap()
   renderHint()
@@ -458,6 +480,7 @@ function sendWrap(msg: { type: 'rewrap'; text?: string } | { type: 'wrap-prompt'
 /** The same sounding, read with another instruction; "what I heard" is the saved one. Nothing is saved by this. */
 function readAs(key: string) {
   lens = key
+  wrapPage = 0
   const had = written.get(key)
   if (had !== undefined && wrapPrompt) {
     awaiting = null
@@ -476,6 +499,7 @@ function clearWrap() {
   if (wrapWs && wrapWs.readyState === WebSocket.OPEN) wrapWs.close()
   wrapWs = null
   wrap = null
+  wrapPage = 0
   wrapRevealed.clear()
   written.clear()
   awaiting = null
@@ -505,6 +529,7 @@ wrapEl.addEventListener('click', (e) => {
     ownPrompt = text
     return readAs('own')
   }
+  if (act === 'page:0' || act === 'page:1') { wrapPage = act === 'page:1' ? 1 : 0; confirming = null; renderWrap(); wrapEl.scrollTop = 0; return }
   if (act === 'cancel') { wrapEditing = false; return renderWrap() }
   if (act === 'again') { written.delete(lens); return readAs(lens) }
   if (act === 'default') { lens = 'heard'; written.delete('heard'); return sendWrap({ type: 'wrap-prompt', text: '' }) }
@@ -525,6 +550,30 @@ wrapEl.addEventListener('submit', (e) => {
   lens = 'heard'
   written.delete('heard') // new saved instructions: the plain reading is written again
   sendWrap({ type: 'wrap-prompt', text: wrapEl.querySelector('textarea')?.value ?? '' })
+})
+// The two pages also turn with a swipe and with the arrow keys.
+function turnWrap(to: 0 | 1) {
+  if (beside || wrapEditing || lensOpen || replaying || wrap?.state !== 'done' || wrapPage === to) return
+  wrapPage = to
+  confirming = null
+  renderWrap()
+  wrapEl.scrollTop = 0
+}
+let swipeFrom: { x: number; y: number } | null = null
+wrapEl.addEventListener('touchstart', (e) => { const t = e.touches[0]; swipeFrom = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null }, { passive: true })
+wrapEl.addEventListener('touchend', (e) => {
+  const from = swipeFrom
+  swipeFrom = null
+  const t = e.changedTouches[0]
+  if (!from || !t) return
+  const dx = t.clientX - from.x
+  if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(t.clientY - from.y) * 1.5) turnWrap(dx < 0 ? 1 : 0)
+}, { passive: true })
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+  if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).closest('input, textarea, [contenteditable]')) return
+  if (state !== 'idle' || !wrap || earlierOpen || setupOpen) return
+  turnWrap(e.key === 'ArrowRight' ? 1 : 0)
 })
 wrapEl.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && wrapEditing) { wrapEditing = false; renderWrap() }
@@ -750,6 +799,7 @@ function clearPage() {
   renaming = null
   clearUndo()
   wrap = null
+  wrapPage = 0
   wrapRevealed.clear()
   written.clear()
   awaiting = null

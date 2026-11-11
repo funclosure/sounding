@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SlotLayout, separate, columnOrder, columnFontPx } from '../src/ui/board/layout'
+import { SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, BESIDE_MIN_W } from '../src/ui/board/layout'
 import type { Placed } from '../src/ui/board/layout'
 
 describe('SlotLayout', () => {
@@ -227,7 +227,25 @@ describe('the gathered column', () => {
     expect(columnFontPx(0.25)).toBe(25)
     expect(columnFontPx(0.5)).toBe(34)
     expect(columnFontPx(0.9)).toBe(34)
-    expect(columnFontPx(0, true)).toBe(14)
-    expect(columnFontPx(0.5, true)).toBe(28)
+    expect(columnFontPx(0, true)).toBe(13)
+    expect(columnFontPx(0.5, true)).toBe(24)
+  })
+  it('side by side: the words and the reading are centred as one, a gap either side of the hairline', () => {
+    const room = besideRoom(1200)
+    expect(room.reading).toBe(496)
+    expect(room.words).toBe(1200 - 496 - 72 - 48)
+    const plan = besidePlan(1200, 300)
+    // words (300) + gap + gap + reading (496) = 868, centred in 1200: starts at 166
+    expect(plan.edge).toBe(466)
+    expect(plan.left).toBe(502)
+    expect(plan.width).toBe(532)
+    expect(plan.left + plan.width).toBeLessThanOrEqual(1200 - 24)
+  })
+  it('side by side on a board just wide enough: the reading takes half, the words what is left', () => {
+    const room = besideRoom(BESIDE_MIN_W)
+    expect(room.reading).toBe(380)
+    const plan = besidePlan(BESIDE_MIN_W, room.words)
+    expect(plan.edge - room.words).toBeGreaterThanOrEqual(24)
+    expect(plan.left + plan.width).toBeLessThanOrEqual(BESIDE_MIN_W - 24)
   })
 })
