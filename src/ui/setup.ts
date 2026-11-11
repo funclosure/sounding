@@ -1,7 +1,9 @@
 // The setup sheet's wording: each fact the server reports, as a name and a plain line. Pure.
 import type { Setup } from '../live/setup'
+import { langName } from '../live/langs'
 
-export function setupLines(s: Setup): Array<[string, string]> {
+/** Each row: its name, its line, and (for the two that can be changed here) what tapping it opens. */
+export function setupLines(s: Setup): Array<[string, string, ('instructions' | 'lang')?]> {
   const hears = s.transcriber === 'whisper' ? `Whisper${s.hearsModel ? ` (${s.hearsModel})` : ''}, on the machine itself. Your voice does not leave it.`
     : s.transcriber === 'gemini' ? 'Gemini, through the paid API.'
     : s.transcriber
@@ -15,8 +17,8 @@ export function setupLines(s: Setup): Array<[string, string]> {
   return [
     ['hears with', hears],
     ['understands with', thinks],
-    ['the wrap', wrap],
-    ['language', s.lang],
+    ['the wrap', wrap, 'instructions'],
+    ['language', langName(s.lang), 'lang'],
     ['paid API', s.api ? 'Allowed. A paid provider can be started.' : 'Off. Nothing here can spend money.'],
   ]
 }

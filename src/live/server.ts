@@ -19,7 +19,8 @@ import type { FixtureScript } from '../replay/fixture'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { listEarlier, readEarlier, removeEarlier, isEarlierName } from './earlier'
-import { describeSetup } from './setup'
+import { describeSetup, readLang, saveLang } from './setup'
+import { isLang } from './langs'
 import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
 
 export const TRANSCRIBERS = ['gemini', 'whisper'] as const
@@ -175,6 +176,8 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
   // from both interleave into the ring/segmenter.
   let stopping: Promise<void> | null = null
   const send = (m: LiveMessage) => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(m)) }
+  const lang = () => readLang(deps.promptDir) ?? args.lang
+  const sendSetup = () => send({ type: 'live.setup', setup: describeSetup({ ...args, lang: lang() }, readWrapPrompt(deps.promptDir)) })
   // The writer for the sounding currently live, fixed at its start.
   let liveWriter: WrapWriter | null = null
   const stop = async () => {
@@ -199,7 +202,7 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
   }
   ws.on('message', async (data: Buffer, isBinary: boolean) => {
     if (isBinary) { live?.pushAudio(new Int16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length - (data.length % 2)))); return }
-    let msg: { type?: string; name?: unknown; interpreter?: string; transcriber?: unknown; label?: unknown; context?: unknown; text?: unknown; conceptId?: unknown }
+    let msg: { type?: string; name?: unknown; interpreter?: string; transcriber?: unknown; label?: unknown; context?: unknown; text?: unknown; conceptId?: unknown; lang?: unknown }
     try { msg = JSON.parse(data.toString('utf8')) } catch { return }
     if (msg.type === 'start' && !live && !starting) {
       let interpreter = args.interpreter
@@ -219,7 +222,7 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       }
       const clock = new Clock(args.speed)
       starting = (async () => {
-        const transcriber = await makeTranscriber({ ...args, interpreter, transcriber: transcriberName }, clock, context)
+        const transcriber = await makeTranscriber({ ...args, interpreter, transcriber: transcriberName, lang: lang() }, clock, context)
         // A prior sounding on this connection may still be draining and
         // surfacing (stop() in flight); let it finish before this one
         // starts pushing audio into a fresh LiveSounding.
@@ -251,7 +254,17 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       if (once === null) { send({ type: 'live.status', state: 'warning', message: `wrap instructions must be text of at most ${WRAP_PROMPT_MAX_CHARS} characters, ignoring` }); return }
       await writeWrap(once)
     } else if (msg.type === 'setup') {
-      send({ type: 'live.setup', setup: describeSetup(args, !readWrapPrompt(deps.promptDir).isDefault) })
+      sendSetup()
+    } else if (msg.type === 'instructions') {
+      // The wrap instructions, changed from the setup sheet ('' goes back to the default). Used from the next wrap on; nothing is rewritten.
+      const prompt = validWrapPrompt(msg.text)
+      if (prompt === null) { send({ type: 'live.status', state: 'warning', message: `wrap instructions must be text of at most ${WRAP_PROMPT_MAX_CHARS} characters, ignoring` }); return }
+      saveWrapPrompt(prompt, deps.promptDir)
+      sendSetup()
+    } else if (msg.type === 'lang') {
+      // The language to listen for, from the next sounding on.
+      if (isLang(msg.lang)) saveLang(msg.lang, deps.promptDir)
+      sendSetup()
     } else if (msg.type === 'earlier') {
       send({ type: 'live.earlier', items: listEarlier(deps.soundingsDir) })
     } else if (msg.type === 'open') {

@@ -259,7 +259,7 @@ html.dark {
 :is(.wrap, .earlier) .act { all: unset; cursor: pointer; font-family: var(--mono); font-size: 12px; letter-spacing: 0.03em; color: var(--ink); border-bottom: 1px solid var(--light); }
 :is(.wrap, .earlier) .act.quiet { color: var(--ink-quiet); border-bottom-color: transparent; font-size: 12px; margin: 0; }
 :is(.wrap, .earlier) .act:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
-.wrap form { margin: 0; }
+:is(.wrap, .setup) form { margin: 0; }
 /* What can follow the wrap: each choice is its name and, beside it, a line saying what it will do. */
 .wrap .next { display: grid; gap: 9px; text-shadow: none; user-select: none; -webkit-user-select: none; }
 .wrap .next.ruled { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -297,6 +297,11 @@ html.dark {
 /* How this is set up: the state word in the top corner opens it. Read, not pressed: each row is a name and a line. */
 .setup li { grid-template-columns: 10.5rem minmax(0, 1fr); gap: 0 12px; }
 .setup li b { font-family: var(--mono); font-weight: 400; font-size: 12.5px; letter-spacing: 0.03em; color: var(--ink); }
+.setup .opt { grid-column: 1 / -1; }
+@media (min-width: 720px) { .setup li .opt { grid-template-columns: 10.5rem minmax(0, 1fr); } }
+.setup .opt b, .setup .next .opt b { border-bottom-color: var(--light); white-space: normal; }
+.setup .next { display: grid; gap: 9px; }
+.setup textarea { user-select: text; -webkit-user-select: text; }
 .setup li span { font-family: var(--serif); font-size: 13.5px; line-height: 1.45; color: var(--ink-quiet); }
 #state { border-bottom: 1px solid transparent; transition: color 280ms ease, border-color 280ms ease; }
 #state:hover, #state[aria-expanded="true"] { color: var(--ink); }
@@ -309,9 +314,9 @@ html.dark {
 /* After a sounding the circle's own line comes first, right under it; bringing context steps down. */
 .controls.after .hint { order: 1; }
 .controls.after .ctxopen { order: 2; }
-.wrap textarea { display: block; width: 100%; min-height: 150px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: transparent; color: var(--ink); font-family: var(--serif); font-size: 15px; line-height: 1.55; }
-.wrap textarea:focus-visible { outline: none; border-color: var(--whisper); box-shadow: 0 0 0 3px var(--halo); }
-.wrap .note { font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink-quiet); margin: 10px 0 0; }
+:is(.wrap, .setup) textarea { display: block; width: 100%; min-height: 150px; resize: vertical; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: transparent; color: var(--ink); font-family: var(--serif); font-size: 15px; line-height: 1.55; }
+:is(.wrap, .setup) textarea:focus-visible { outline: none; border-color: var(--whisper); box-shadow: 0 0 0 3px var(--halo); }
+:is(.wrap, .setup) .note { font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink-quiet); margin: 10px 0 0; }
 @media (min-width: 720px) {
   /* the base rule above comes later in the file than the desktop grid, so the field's column has to be restated here too */
   .screen > .field, .screen > .wrap, .screen > .heard { grid-column: 2; }
