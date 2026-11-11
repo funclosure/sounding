@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { listEarlier, readEarlier, removeEarlier, isEarlierName } from './earlier'
 import { describeSetup, readLang, saveLang } from './setup'
 import { isLang } from './langs'
+import { scriptFor } from './chinese-script'
 import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
 
 export const TRANSCRIBERS = ['gemini', 'whisper'] as const
@@ -91,7 +92,7 @@ async function makeTranscriber(args: Args, clock: Clock, context?: string): Prom
     return new FakeTranscriber(script, clock)
   }
   if (args.transcriber === 'whisper') {
-    return new WhisperTranscriber({ open: () => sharedWhisper(), language: whisperLanguage(args.lang), vocabulary: vocabularyFrom(context ?? '') })
+    return new WhisperTranscriber({ open: () => sharedWhisper(), language: whisperLanguage(args.lang), rewrite: scriptFor(args.lang), vocabulary: vocabularyFrom(context ?? '') })
   }
   assertApiAllowed('Gemini Transcribe Live (GEMINI_API_KEY)')
   const key = process.env.GEMINI_API_KEY
