@@ -1,4 +1,5 @@
 import type { TranscriptModel } from './model'
+import { w } from '../words'
 
 /**
  * The transcript pane: committed segments with 30s stamps, a pending tail,
@@ -12,7 +13,7 @@ export function createTranscript(el: HTMLElement): { render(m: TranscriptModel, 
 
     const empty = document.createElement('div')
     empty.className = 'empty'
-    empty.textContent = 'Nothing yet. Drop, and what you say appears here as it is heard.'
+    empty.textContent = w('transcript.empty')
     el.appendChild(empty)
 
     let si = 0

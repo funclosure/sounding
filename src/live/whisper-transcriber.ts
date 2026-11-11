@@ -19,6 +19,8 @@ export interface WhisperTranscriberOptions {
   language: string
   /** Names the speaker brought as context; biases whisper's spelling. */
   vocabulary?: string[]
+  /** Rewrites everything heard (Chinese into the chosen script). The rewritten text is also what primes the next utterance. */
+  rewrite?: (text: string) => string
   /** A pause this long closes the utterance. */
   endSilenceMs?: number
   /** Continuous talk is closed after this long even without a pause. */
@@ -56,7 +58,7 @@ export class WhisperTranscriber implements Transcriber {
   private cbs: TranscriberCallbacks | null = null
   private transcribe: TranscribeFn | null = null
   private connected = false
-  private readonly o: Required<Omit<WhisperTranscriberOptions, 'open' | 'language' | 'vocabulary'>>
+  private readonly o: Required<Omit<WhisperTranscriberOptions, 'open' | 'language' | 'vocabulary' | 'rewrite'>>
   private words: string[]
   private lastFinal = ''
 
@@ -212,7 +214,8 @@ export class WhisperTranscriber implements Transcriber {
     try {
       // After a failure the handle is dropped, so this asks for the server again (it restarts if it died).
       this.transcribe ??= await this.opts.open()
-      const text = cleanWhisperText(await this.transcribe(pcm, { language: this.opts.language, prompt: ((this.words.length ? `${this.words.join(', ')}. ` : '') + this.lastFinal.slice(-PROMPT_TAIL_CHARS)) || undefined }))
+      const heard = cleanWhisperText(await this.transcribe(pcm, { language: this.opts.language, prompt: ((this.words.length ? `${this.words.join(', ')}. ` : '') + this.lastFinal.slice(-PROMPT_TAIL_CHARS)) || undefined }))
+      const text = this.opts.rewrite ? this.opts.rewrite(heard) : heard
       if (this.failing) { this.failing = false; this.cbs?.onStatus('listening') }
       return text
     } catch (e) {

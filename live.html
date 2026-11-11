@@ -82,41 +82,41 @@
       <div class="field" id="field"></div>
       <div class="heard" id="heard"></div>
       <p class="pinned" id="pinned" hidden></p>
-      <section class="earlier" id="earlier" aria-label="Earlier soundings" hidden></section>
-      <section class="earlier setup" id="setup" aria-label="How this is set up" hidden></section>
-      <section class="wrap" id="wrap" aria-label="What I heard" aria-live="polite" hidden></section>
+      <section class="earlier" id="earlier" aria-label="Earlier soundings" data-w-aria="earlier.title" hidden></section>
+      <section class="earlier setup" id="setup" aria-label="How this is set up" data-w-aria="setup.title" hidden></section>
+      <section class="wrap" id="wrap" aria-label="What I heard" data-w-aria="wrap.aria" aria-live="polite" hidden></section>
 
       <div class="controls">
         <button class="big" id="big" aria-label="Drop"><i></i></button>
-        <button class="ctxopen" id="ctxopen">bring context</button>
+        <button class="ctxopen" id="ctxopen" data-w="ctx.open">bring context</button>
         <div class="hint" id="hint"></div>
       </div>
 
-      <aside class="panel-left" aria-label="Transcript">
+      <aside class="panel-left" aria-label="Transcript" data-w-aria="tab.transcript">
         <div class="grip" aria-hidden="true"></div>
-        <h2>Transcript</h2>
+        <h2 data-w="tab.transcript">Transcript</h2>
         <div class="transcript" id="transcript-d"></div>
       </aside>
-      <aside class="panel-right" aria-label="Chart">
+      <aside class="panel-right" aria-label="Chart" data-w-aria="tab.chart">
         <div class="grip" aria-hidden="true"></div>
-        <h2>Chart</h2>
+        <h2 data-w="tab.chart">Chart</h2>
         <div class="chart">
-          <div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div>
+          <div class="sub" data-w="chart.sub">what surfaced, and when · drag to replay · tap a name to follow it</div>
           <div class="surfaced" id="surfacedbox-d"></div>
-          <svg id="chartsvg-d" viewBox="0 0 390 560" preserveAspectRatio="none" aria-label="Prominence of each concept over the sounding"></svg>
+          <svg id="chartsvg-d" viewBox="0 0 390 560" preserveAspectRatio="none" aria-label="Prominence of each concept over the sounding" data-w-aria="chart.aria"></svg>
         </div>
       </aside>
-      <button class="edge left" aria-expanded="false" aria-controls="transcript-d">transcript <kbd>T</kbd></button>
-      <button class="edge right" aria-expanded="false" aria-controls="chartsvg-d">chart <kbd>C</kbd></button>
+      <button class="edge left" aria-expanded="false" aria-controls="transcript-d"><span data-w="edge.transcript">transcript</span> <kbd>T</kbd></button>
+      <button class="edge right" aria-expanded="false" aria-controls="chartsvg-d"><span data-w="edge.chart">chart</span> <kbd>C</kbd></button>
       <div class="popover" id="context-pop" hidden><div class="context" id="context-d"></div></div>
 
       <div class="scrim" id="scrim"></div>
       <div class="sheet" id="sheet" data-detent="peek">
         <div class="grab" id="grab"><i></i></div>
         <div class="tabs" id="tabs" role="tablist">
-          <button role="tab" data-tab="context" aria-selected="false">Context</button>
-          <button role="tab" data-tab="transcript" aria-selected="true">Transcript</button>
-          <button role="tab" data-tab="chart" aria-selected="false">Chart</button>
+          <button role="tab" data-tab="context" aria-selected="false" data-w="tab.context">Context</button>
+          <button role="tab" data-tab="transcript" aria-selected="true" data-w="tab.transcript">Transcript</button>
+          <button role="tab" data-tab="chart" aria-selected="false" data-w="tab.chart">Chart</button>
         </div>
         <div class="body" id="sheetbody">
           <div class="pane" data-pane="context">
@@ -127,13 +127,14 @@
           </div>
           <div class="pane" data-pane="chart">
             <div class="chart">
-              <div class="sub">what surfaced, and when · drag to replay · tap a name to follow it</div>
+              <div class="sub" data-w="chart.sub">what surfaced, and when · drag to replay · tap a name to follow it</div>
               <div class="surfaced" id="surfacedbox"></div>
               <svg
                 id="chartsvg"
                 viewBox="0 0 390 560"
                 preserveAspectRatio="none"
                 aria-label="Prominence of each concept over the sounding"
+                data-w-aria="chart.aria"
               ></svg>
             </div>
           </div>

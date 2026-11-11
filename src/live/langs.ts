@@ -2,7 +2,8 @@
 // The choice is kept beside the soundings and used from the next sounding on; none saved means the server's own --lang.
 export const LANGS: ReadonlyArray<{ code: string; name: string; says: string }> = [
   { code: 'en-US', name: 'English', says: 'Everything is heard as English.' },
-  { code: 'zh-TW', name: '中文', says: 'Everything is heard as Chinese.' },
+  { code: 'zh-TW', name: '繁體中文', says: 'Everything is heard as Chinese and written in traditional characters.' },
+  { code: 'zh-CN', name: '简体中文', says: 'Everything is heard as Chinese and written in simplified characters.' },
   { code: 'ja-JP', name: '日本語', says: 'Everything is heard as Japanese.' },
   { code: 'auto', name: 'whatever I speak', says: 'The listener works out the language itself. Less steady on short phrases.' },
 ]

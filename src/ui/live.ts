@@ -20,6 +20,7 @@ import { createSheet } from './board/sheet'
 import { createPanels } from './board/panels'
 import { createPopover } from './board/popover'
 import { LIVE_SOCKET_PATH } from '../live/socket-path'
+import { w, isWord, setTongue, tongueFor, currentTongue, type WordKey } from './words'
 import { LENSES, CARRY_MAX_MARKS, carryContext, matchCarried, soundingNote } from './after'
 
 const screen = document.getElementById('screen') as HTMLElement
@@ -198,8 +199,16 @@ let surfacedOnce = false
 // mid-reconnect).
 let lastStatusWord: 'listening' | 'reconnecting' = 'listening'
 
-function setState(text: string, listening: boolean) {
-  stateEl.textContent = text
+// The state word is kept as what it means, so it can be said again when the page's language changes.
+// A key from the word table, a bare state name ('listening'), or, failing both, the text itself.
+let stateSaid: { key: string; vars?: Record<string, string> } = { key: 'state.ready' }
+function sayState(key: string, vars?: Record<string, string>) {
+  stateSaid = { key, vars }
+  const k = isWord(key) ? key : `state.${key}`
+  stateEl.textContent = isWord(k) ? w(k, vars) : key
+}
+function setState(text: string, listening: boolean, vars?: Record<string, string>) {
+  sayState(text, vars)
   screen.classList.toggle('listening', listening)
 }
 
@@ -214,7 +223,7 @@ function setState(text: string, listening: boolean) {
 function slackWord(slack: boolean) {
   if (!screen.classList.contains('listening')) return
   screen.classList.toggle('slack', state === 'live' && slack)
-  stateEl.textContent = slack ? 'slack' : 'listening'
+  sayState(slack ? 'slack' : 'listening')
 }
 
 function matchesContext(label: string): boolean {
@@ -236,7 +245,7 @@ function escapeHtml(s: string): string {
 // The one authoritative teardown: every exit path (server error, socket
 // error/close, a failed setupAudio, or a clean stop) routes through this so
 // the mic is always released and the button always returns to rest.
-function finish(statusText: string, opts?: { keepStatusClass?: boolean; keepSocket?: boolean }) {
+function finish(statusText: string, opts?: { keepStatusClass?: boolean; keepSocket?: boolean }, vars?: Record<string, string>) {
   if (replaying) backToLive()
   void teardownAudio()
   // A wrap is on its way: the socket stays open for it (and for rewrites) until the next sounding starts.
@@ -247,11 +256,11 @@ function finish(statusText: string, opts?: { keepStatusClass?: boolean; keepSock
   // the rings keep closing in only while a wrap is still being written
   if (wrap?.state !== 'writing') dots.gather(false)
   big.disabled = false
-  big.setAttribute('aria-label', 'Drop')
+  big.setAttribute('aria-label', w('aria.drop'))
   if (opts?.keepStatusClass) {
-    stateEl.textContent = statusText
+    sayState(statusText, vars)
   } else {
-    setState(statusText, false)
+    setState(statusText, false, vars)
     screen.classList.remove('slack', 'surfaced')
   }
   syncCtxOpenVisibility()
@@ -291,7 +300,7 @@ function showSurfaced() {
   rebuildLanes()
   const last = readings.at(-1)
   const html = last
-    ? `<h3>What you kept coming back to <small style="font-size:12px;color:var(--chrome);font-family:'IBM Plex Mono',monospace;letter-spacing:.08em">· ${fmt(last.t)}</small></h3>
+    ? `<h3><span data-w="surfaced.title">${w('surfaced.title')}</span> <small style="font-size:12px;color:var(--chrome);font-family:'IBM Plex Mono',monospace;letter-spacing:.08em">· ${fmt(last.t)}</small></h3>
       <ol>${ranked(last)
         .map(
           (it) =>
@@ -319,27 +328,27 @@ const canCorrect = () => state === 'live' && !replaying && !!ws && ws.readyState
 function renderHint() {
   controls.classList.toggle('after', canCarry())
   if (renaming && renaming === lit) {
-    hint.innerHTML = `<form class="rename"><label>rename <input name="label" maxlength="60" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(labelOf.get(lit) ?? '')}" /></label> · <button type="button" data-act="cancel">cancel</button></form>`
+    hint.innerHTML = `<form class="rename"><label>${w('hint.rename')} <input name="label" maxlength="60" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(labelOf.get(lit) ?? '')}" /></label> · <button type="button" data-act="cancel">${w('cancel')}</button></form>`
     const input = hint.querySelector('input')!
     input.focus()
     input.select()
     return
   }
   if (lit) {
-    const acts = canCorrect() ? `<button type="button" data-act="rename">rename</button> · <button type="button" data-act="dismiss">dismiss</button> · ` : ''
-    hint.innerHTML = `following <b>${escapeHtml(labelOf.get(lit) ?? lit)}</b> · ${acts}<button type="button" data-act="letgo">let go</button>`
+    const acts = canCorrect() ? `<button type="button" data-act="rename">${w('hint.rename')}</button> · <button type="button" data-act="dismiss">${w('hint.dismiss')}</button> · ` : ''
+    hint.innerHTML = `${w('hint.following')} <b>${escapeHtml(labelOf.get(lit) ?? lit)}</b> · ${acts}<button type="button" data-act="letgo">${w('hint.letgo')}</button>`
     return
   }
   if (undo && canCorrect()) {
-    hint.innerHTML = `dismissed <b class="gone">${escapeHtml(undo.label)}</b> · <button type="button" data-act="undo">undo</button>`
+    hint.innerHTML = `${w('hint.dismissed')} <b class="gone">${escapeHtml(undo.label)}</b> · <button type="button" data-act="undo">${w('hint.undo')}</button>`
     return
   }
   // after a sounding the circle carries on from it, and says so right under itself
   if (canCarry()) {
     const q = lens === 'question' && wrap?.state === 'done'
     hint.innerHTML = q
-      ? `<span class="go">answer it out loud</span> · the question stays<span class="long"> at the top of the board</span>`
-      : `<span class="go">keep talking</span> · these words stay, faint<span class="long">, until you return to them</span>${wrap ? '' : ' · <button type="button" data-act="fresh">start fresh</button>'}`
+      ? `<span class="go">${w('hint.answer')}</span> · ${w('hint.answerStays')}<span class="long">${w('hint.answerLong')}</span>`
+      : `<span class="go">${w('hint.keep')}</span> · ${w('hint.keepStays')}<span class="long">${w('hint.keepLong')}</span>${wrap ? '' : ` · <button type="button" data-act="fresh">${w('fresh')}</button>`}`
     return
   }
   hint.textContent = ''
@@ -363,7 +372,7 @@ let lensOpen = false
 let ownPrompt = ''
 // the plain "what I heard" of this sounding, kept so it is what gets carried on even while another reading is showing
 let heardText = ''
-const WRAP_HEADS: Record<string, string> = { heard: 'I hear you…', avoided: 'what you stepped around…', question: 'a question…', next: 'what next…', own: 'in your own words…' }
+const wrapHead = (l: string): string => { const k = `head.${l}`; return w(isWord(k) ? k : 'head.heard') }
 
 const lastMarkLabels = (): string[] => { const last = readings.at(-1); return last ? columnOrder(last.marks).map((m) => m.label) : [] }
 /** After a sounding has ended with something on the board, the circle carries on from it. */
@@ -408,36 +417,36 @@ function renderWrap() {
   if (wrapEditing && wrapPrompt) {
     // the instruction behind the reading in use, open to change: for this once, or for every sounding
     const text = lens === 'own' ? ownPrompt : LENSES.find((l) => l.key === lens)?.prompt || wrapPrompt.text
-    wrapEl.innerHTML = `<form><p class="wl"><label for="wrap-prompt">how to read this sounding</label></p>
+    wrapEl.innerHTML = `<form><p class="wl"><label for="wrap-prompt">${w('wrap.how')}</label></p>
       <textarea id="wrap-prompt" maxlength="2000" spellcheck="false">${escapeHtml(text)}</textarea>
-      <p class="note">“Just this time” rewrites this wrap only. “From now on” saves it for every sounding, on every device${wrapPrompt.isDefault ? '' : ', in place of your own saved instructions'}.</p>
-      <div class="acts">${act('once', 'use it just this time')}<button type="submit" class="act">use it from now on</button>${wrapPrompt.isDefault ? '' : act('default', 'back to the default', true)}${act('cancel', 'cancel', true)}</div></form>`
+      <p class="note">${w('wrap.note', { own: wrapPrompt.isDefault ? '' : w('wrap.noteOwn') })}</p>
+      <div class="acts">${act('once', w('wrap.once'))}<button type="submit" class="act">${w('wrap.always')}</button>${wrapPrompt.isDefault ? '' : act('default', w('default'), true)}${act('cancel', w('cancel'), true)}</div></form>`
     return
   }
   if (lensOpen) {
     // the readings take the wrap's place while they are open, so nothing has to scroll
-    wrapEl.innerHTML = `<p class="wl">hear it differently</p><div class="next" role="group" aria-label="Hear it differently">${LENSES.map((l) => opt(`lens:${l.key}`, l.label, l.says, l.key === lens)).join('')}${opt('own', 'my own words…', 'See the instruction behind it and write your own.', lens === 'own')}${opt('angle', 'back', 'Leave the wrap as it is.')}</div>`
+    wrapEl.innerHTML = `<p class="wl">${w('wrap.differently')}</p><div class="next" role="group" aria-label="${w('wrap.differently')}">${LENSES.map((l) => opt(`lens:${l.key}`, w(`lens.${l.key}` as WordKey), w(`lens.${l.key}.says` as WordKey), l.key === lens)).join('')}${opt('own', w('lens.own'), w('lens.own.says'), lens === 'own')}${opt('angle', w('back'), w('wrap.leave'))}</div>`
     return
   }
-  const head = `<p class="wl">${WRAP_HEADS[lens] ?? WRAP_HEADS.heard}</p>`
-  const others = `${opt('angle', 'hear it differently', 'The same talk, read another way.')}`
-  const fresh = opt('fresh', 'start fresh', 'Clear the board and listen from nothing.')
-    + (currentName ? (confirming === currentName ? opt('remove', 'really remove?', 'Tap again to move it to the Trash.') : opt('remove', 'remove it', 'Move this sounding to the Trash.')) : '')
+  const head = `<p class="wl">${wrapHead(lens)}</p>`
+  const others = `${opt('angle', w('wrap.differently'), w('wrap.differentlySays'))}`
+  const fresh = opt('fresh', w('fresh'), w('fresh.says'))
+    + (currentName ? (confirming === currentName ? opt('remove', w('remove.sure'), w('remove.sureSays')) : opt('remove', w('remove'), w('remove.says'))) : '')
   if (wrap.state === 'writing') wrapEl.innerHTML = head
   else if (wrap.state === 'done') {
     const said = wrapHtml(wrap.text)
     const arriving = !wrapRevealed.has(wrap.text)
     wrapRevealed.add(wrap.text)
     wrapEl.style.setProperty('--word-every', `${WORD_EVERY_MS}ms`)
-    const choices = `${others}${opt('note', 'copy as a note', 'The words and the wrap, ready to paste.')}${fresh}`
+    const choices = `${others}${opt('note', w('note'), w('note.says'))}${fresh}`
     const late = `${arriving ? ' arriving' : ''}" style="--i:${said.words}`
     // the marker under a page says there are two, which one this is, and leads to the other
-    const marker = (page: 0 | 1) => `<div class="marker${page === 0 ? late : ''}"><button type="button" class="go" data-act="page:0"${page === 0 ? ' disabled' : ''}>← the reading</button><span class="pips" aria-hidden="true"><i${page === 0 ? ' class="on"' : ''}></i><i${page === 1 ? ' class="on"' : ''}></i></span><button type="button" class="go" data-act="page:1"${page === 1 ? ' disabled' : ''}>what next →</button></div>`
+    const marker = (page: 0 | 1) => `<div class="marker${page === 0 ? late : ''}"><button type="button" class="go" data-act="page:0"${page === 0 ? ' disabled' : ''}>${w('page.reading')}</button><span class="pips" aria-hidden="true"><i${page === 0 ? ' class="on"' : ''}></i><i${page === 1 ? ' class="on"' : ''}></i></span><button type="button" class="go" data-act="page:1"${page === 1 ? ' disabled' : ''}>${w('page.next')}</button></div>`
     if (beside) wrapEl.innerHTML = `${head}<div class="said${arriving ? ' arriving' : ''}">${said.html}</div><div class="next ruled${late}">${choices}</div>`
     else if (wrapPage === 0) wrapEl.innerHTML = `${head}<div class="said${arriving ? ' arriving' : ''}">${said.html}</div>${marker(0)}`
-    else wrapEl.innerHTML = `<p class="wl">what next</p><div class="next">${choices}</div>${marker(1)}`
+    else wrapEl.innerHTML = `<p class="wl">${w('next')}</p><div class="next">${choices}</div>${marker(1)}`
   }
-  else wrapEl.innerHTML = `${head}<p class="quiet">It didn’t come through: ${escapeHtml(wrap.message)}</p><div class="next ruled">${opt('again', 'try again', 'Ask for the same reading once more.')}${others}${fresh}</div>`
+  else wrapEl.innerHTML = `${head}<p class="quiet">${w('wrap.failed', { message: escapeHtml(wrap.message) })}</p><div class="next ruled">${opt('again', w('again'), w('again.says'))}${others}${fresh}</div>`
 }
 
 function onWrap(m: Extract<LiveMessage, { type: 'live.wrap' }>) {
@@ -470,7 +479,7 @@ function sendWrap(msg: { type: 'rewrap'; text?: string } | { type: 'wrap-prompt'
     awaiting = lens
     wrap = { state: 'writing' }
   } else if (wrapPrompt) {
-    wrap = { state: 'failed', message: 'the connection to the server has closed', prompt: wrapPrompt.text, isDefaultPrompt: wrapPrompt.isDefault }
+    wrap = { state: 'failed', message: w('wrap.closed'), prompt: wrapPrompt.text, isDefaultPrompt: wrapPrompt.isDefault }
   }
   dots.gather(wrap?.state === 'writing')
   renderWrap()
@@ -540,9 +549,9 @@ wrapEl.addEventListener('click', (e) => {
     return tell({ type: 'remove', name: currentName })
   }
   if (act === 'note' && wrap?.state === 'done') {
-    const title = `Sounding · ${(dateOf(currentName) ?? new Date()).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
+    const title = `Sounding · ${(dateOf(currentName) ?? new Date()).toLocaleDateString(dateLocale(), { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
     const says = el.querySelector('span') ?? el
-    void navigator.clipboard.writeText(soundingNote({ title, marks: lastMarkLabels(), wrap: wrap.text })).then(() => { says.textContent = 'Copied.' }, () => { says.textContent = 'Copying is blocked here: select the text instead.' })
+    void navigator.clipboard.writeText(soundingNote({ title, marks: lastMarkLabels(), wrap: wrap.text })).then(() => { says.textContent = w('note.copied') }, () => { says.textContent = w('note.blocked') })
   }
 })
 wrapEl.addEventListener('submit', (e) => {
@@ -672,7 +681,9 @@ const dateOf = (name: string | null): Date | null => {
   const m = name && /^live-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\./.exec(name)
   return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null
 }
-const whenOf = (name: string): string => dateOf(name)?.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) ?? name
+/** Dates are written the way the page's language writes them; English keeps the browser's own habit. */
+const dateLocale = (): string | undefined => { const t = currentTongue(); return t === 'en' ? undefined : t }
+const whenOf = (name: string): string => dateOf(name)?.toLocaleString(dateLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) ?? name
 
 // Between soundings the page talks to the server on the ended sounding's socket if it is still open, or on one opened for the purpose.
 let idleConnecting: Promise<WebSocket> | null = null
@@ -702,6 +713,30 @@ function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; na
   idleSocket().then((s) => s.send(JSON.stringify(msg)), () => { earlierFailed = true; setupFailed = true; renderEarlier(); renderSetup() })
 }
 
+// ---- the page's own language: it follows the language being listened for.
+// Remembered here so the next visit starts in it, before the server has answered.
+const LANG_KEY = 'sounding.lang'
+try { const saved = localStorage.getItem(LANG_KEY); if (saved && setTongue(tongueFor(saved, navigator.language))) document.documentElement.lang = currentTongue() } catch { /* starts in English until the server answers */ }
+/** Fills every element that names its word: its text, its placeholder, its aria-label, or the text a chip drops in. */
+function applyWords(root: ParentNode = document) {
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w]'))) el.textContent = w(el.dataset.w as WordKey)
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w-placeholder]'))) el.setAttribute('placeholder', w(el.dataset.wPlaceholder as WordKey))
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w-aria]'))) el.setAttribute('aria-label', w(el.dataset.wAria as WordKey))
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w-ctx]'))) el.dataset.ctx = w(el.dataset.wCtx as WordKey)
+}
+function useLang(lang: string) {
+  try { localStorage.setItem(LANG_KEY, lang) } catch { /* private window: the server will say again next time */ }
+  if (!setTongue(tongueFor(lang, navigator.language))) return
+  document.documentElement.lang = currentTongue()
+  applyWords()
+  sayState(stateSaid.key, stateSaid.vars)
+  big.setAttribute('aria-label', w(state === 'live' ? 'aria.surface' : 'aria.drop'))
+  renderHint()
+  renderWrap()
+  renderEarlier()
+  renderSetup()
+}
+
 // ---- how this is set up: the state word opens a sheet saying which models listen and understand. Read only.
 let setupOpen = false
 let setup: Setup | null = null
@@ -714,24 +749,24 @@ function renderSetup() {
   if (!setupOpen) { setupEl.innerHTML = ''; return }
   const act = (name: string, label: string, quiet = false) => `<button type="button" class="act${quiet ? ' quiet' : ''}" data-act="${name}">${label}</button>`
   if (setup && setupPane === 'instructions') {
-    setupEl.innerHTML = `<form><p class="wl"><label for="setup-prompt">how the wrap is written</label></p>
+    setupEl.innerHTML = `<form><p class="wl"><label for="setup-prompt">${w('setup.how')}</label></p>
       <textarea id="setup-prompt" maxlength="2000" spellcheck="false">${escapeHtml(setup.instructions)}</textarea>
-      <p class="note">Saved for every sounding, on every device, from the next wrap on. A wrap already on the board stays as it is.</p>
-      <div class="acts"><button type="submit" class="act">save</button>${setup.ownInstructions ? act('default', 'back to the default', true) : ''}${act('back', 'cancel', true)}</div></form>`
+      <p class="note">${w('setup.note')}</p>
+      <div class="acts"><button type="submit" class="act">${w('save')}</button>${setup.ownInstructions ? act('default', w('default'), true) : ''}${act('back', w('cancel'), true)}</div></form>`
     return
   }
   if (setup && setupPane === 'lang') {
     const code = setup.lang
-    setupEl.innerHTML = `<p class="wl">the language to listen for</p><div class="next" role="group" aria-label="Language">${LANGS.map((l) => `<button type="button" class="opt" data-lang="${l.code}" aria-pressed="${l.code === code}"><b>${escapeHtml(l.name)}</b><span>${escapeHtml(l.says)}</span></button>`).join('')}<button type="button" class="opt" data-act="back"><b>back</b><span>Leave it as it is. A change starts with the next sounding.</span></button></div>`
+    setupEl.innerHTML = `<p class="wl">${w('setup.lang')}</p><div class="next" role="group" aria-label="${w('setup.language')}">${LANGS.map((l) => `<button type="button" class="opt" data-lang="${l.code}" aria-pressed="${l.code === code}"><b>${escapeHtml(l.code === 'auto' ? w('lang.auto.name') : l.name)}</b><span>${w(`lang.${l.code}` as WordKey)}</span></button>`).join('')}<button type="button" class="opt" data-act="back"><b>${w('back')}</b><span>${w('setup.langBack')}</span></button></div><p class="note">${w('setup.langNote')}</p>`
     return
   }
   const row = ([name, says, opens]: ReturnType<typeof setupLines>[number]) => opens
     ? `<li><button type="button" class="opt" data-act="${opens}"><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></button></li>`
     : `<li><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></li>`
-  const body = setupFailed ? '<p class="quiet">The server cannot be reached.</p>'
+  const body = setupFailed ? `<p class="quiet">${w('unreachable')}</p>`
     : !setup ? '<p class="quiet">…</p>'
     : `<ul>${setupLines(setup).map(row).join('')}</ul>`
-  setupEl.innerHTML = `<p class="wl">how this is set up</p>${body}`
+  setupEl.innerHTML = `<p class="wl">${w('setup.title')}</p>${body}`
 }
 setupEl.addEventListener('click', (e) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act], [data-lang]')
@@ -773,15 +808,15 @@ function toggleSetup() {
 function renderEarlier() {
   earlierEl.hidden = !earlierOpen
   // the word in the corner opens the list and, while it is open, closes it
-  earlierBtn.textContent = earlierOpen ? 'close' : 'earlier'
+  earlierBtn.textContent = w(earlierOpen ? 'close' : 'earlier')
   earlierBtn.setAttribute('aria-expanded', String(earlierOpen))
   if (!earlierOpen) { earlierEl.innerHTML = ''; return }
-  const row = (it: EarlierItem) => `<li${it.name === currentName ? ' aria-current="true"' : ''}><button type="button" class="opt" data-open="${escapeHtml(it.name)}"><b>${escapeHtml(whenOf(it.name))} · ${fmt(it.durationMs)}</b><span>${it.marks.length ? escapeHtml(it.marks.join(', ')) : it.said ? 'nothing stood out' : 'nothing was said'}</span></button><button type="button" class="x${confirming === it.name ? ' sure' : ''}" data-remove="${escapeHtml(it.name)}" aria-label="${confirming === it.name ? 'Really remove this sounding' : 'Remove this sounding'}">${confirming === it.name ? 'remove?' : '×'}</button></li>`
-  const body = earlierFailed ? '<p class="quiet">The server cannot be reached.</p>'
+  const row = (it: EarlierItem) => `<li${it.name === currentName ? ' aria-current="true"' : ''}><button type="button" class="opt" data-open="${escapeHtml(it.name)}"><b>${escapeHtml(whenOf(it.name))} · ${fmt(it.durationMs)}</b><span>${it.marks.length ? escapeHtml(it.marks.join(', ')) : it.said ? w('earlier.nothingStood') : w('earlier.nothingSaid')}</span></button><button type="button" class="x${confirming === it.name ? ' sure' : ''}" data-remove="${escapeHtml(it.name)}" aria-label="${w(confirming === it.name ? 'earlier.reallyRemove' : 'earlier.remove')}">${confirming === it.name ? w('earlier.sure') : '×'}</button></li>`
+  const body = earlierFailed ? `<p class="quiet">${w('unreachable')}</p>`
     : !earlierItems ? '<p class="quiet">…</p>'
-    : !earlierItems.length ? '<p class="quiet">Nothing saved yet.</p>'
+    : !earlierItems.length ? `<p class="quiet">${w('earlier.none')}</p>`
     : `<ul>${earlierItems.map(row).join('')}</ul>`
-  earlierEl.innerHTML = `<p class="wl">earlier soundings</p>${body}`
+  earlierEl.innerHTML = `<p class="wl">${w('earlier.title')}</p>${body}`
 }
 
 /** Everything a sounding put on the page, taken off again. The page stays idle. */
@@ -857,7 +892,7 @@ function showEarlier(m: Extract<LiveMessage, { type: 'live.opened' }>) {
   transcript.render(tm, true)
   transcriptD.render(tm, true)
   clockEl.textContent = fmt(headT)
-  setState(`from ${whenOf(m.name)}`, false)
+  setState('state.from', false, { when: whenOf(m.name) })
   showSurfaced()
   // its wrap follows on the same socket: the saved one, or a new one if it never had any
   if (m.said) { awaiting = 'heard'; wrap = { state: 'writing' } }
@@ -914,7 +949,7 @@ function onMessage(m: LiveMessage) {
       // `stopped` reply is coming — finish now instead of waiting for one.
       // finish() itself returns from a scrub first (its first statement),
       // so the return-to-live affordance can't be stranded here.
-      if (state !== 'idle') finish(`error: ${m.message ?? ''}`)
+      if (state !== 'idle') finish('state.error', undefined, { message: m.message ?? '' })
     } else if (m.state === 'stopped') {
       // Same reasoning: finish() returns from a scrub before doing anything
       // else, so the surfaced chart below reflects every reading received
@@ -935,6 +970,7 @@ function onMessage(m: LiveMessage) {
   if (m.type === 'live.setup') {
     setup = m.setup
     setupFailed = false
+    useLang(m.setup.lang)
     // the wrap's own editor shows the same instructions
     if (wrapPrompt) wrapPrompt = { text: m.setup.instructions, isDefault: !m.setup.ownInstructions }
     return renderSetup()
@@ -1028,7 +1064,7 @@ function showAt(t: Ms) {
   lanes.head(t)
   lanesD.head(t)
   clockEl.textContent = fmt(t)
-  stateEl.textContent = 'replaying · tap to return'
+  sayState('state.replaying')
   screen.classList.remove('listening')
 }
 function backToLive() {
@@ -1045,7 +1081,7 @@ function backToLive() {
   transcriptD.render(tm, true)
   rebuildLanes()
   clockEl.textContent = fmt(headT)
-  stateEl.textContent = state === 'live' ? lastStatusWord : state === 'idle' ? (surfacedOnce ? 'surfaced' : 'ready') : state
+  sayState(state === 'live' ? lastStatusWord : state === 'idle' ? (surfacedOnce ? 'surfaced' : 'ready') : state)
   screen.classList.toggle('listening', state === 'live')
   screen.classList.toggle('slack', state === 'live' && !!s?.slack)
 }
@@ -1128,7 +1164,7 @@ async function start(carry = false) {
   opened = false
   sawError = false
   big.disabled = true
-  setState('connecting…', false)
+  setState('state.connecting', false)
   screen.classList.remove('slack', 'surfaced')
 
   events.length = 0
@@ -1201,7 +1237,7 @@ async function start(carry = false) {
     if (mine !== gen) return // a stale socket from a session finish() already closed
     if (state === 'idle') return // already finished via a 'stopped' status
     if (sawError && opened) console.warn('live socket errored before closing')
-    finish(opened ? 'connection closed' : `cannot reach live server at ${liveUrl} — run: bun run live`)
+    finish(opened ? 'state.closed' : 'state.noserver', undefined, { url: liveUrl })
   }
   socket.onmessage = (ev) => {
     if (mine !== gen) return // a late wrap for a sounding the page has already moved on from
@@ -1226,7 +1262,7 @@ async function start(carry = false) {
       // reported only after a fast re-click already started a newer
       // session) must not finish() the session that superseded it.
       if (mine !== gen) return
-      finish(`error: ${e instanceof Error && e.name === 'NotAllowedError' ? 'microphone access denied' : (e instanceof Error ? e.message : String(e))}`)
+      finish('state.error', undefined, { message: e instanceof Error && e.name === 'NotAllowedError' ? w('state.nomic') : (e instanceof Error ? e.message : String(e)) })
       return
     }
     // finish() may have run while setupAudio() was mid-flight (e.g. the
@@ -1248,7 +1284,7 @@ async function start(carry = false) {
     socket.send(JSON.stringify(startMsg))
     state = 'live'
     syncCtxOpenVisibility()
-    big.setAttribute('aria-label', 'Surface')
+    big.setAttribute('aria-label', w('aria.surface'))
     // Stays disabled until the first `listening` status arrives, so a start
     // that never gets that far can't be "stopped" into the void.
     big.disabled = true
@@ -1261,7 +1297,7 @@ async function stop() {
   state = 'stopping'
   syncCtxOpenVisibility()
   big.disabled = true
-  setState('surfacing…', false)
+  setState('state.surfacing', false)
   beginEnding()
   await teardownAudio()
   // `ws` may have been reset to null by a concurrent finish() (e.g. a
@@ -1285,23 +1321,19 @@ big.addEventListener('click', () => {
 const contextTextareas: HTMLTextAreaElement[] = []
 function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
   el.innerHTML = `
-    <h3>What are you circling already?</h3>
-    <textarea placeholder="A question, a few notes, a name…" maxlength="4000"></textarea>
+    <h3 data-w="ctx.title"></h3>
+    <textarea data-w-placeholder="ctx.placeholder" maxlength="4000"></textarea>
     <div class="chips">
-      <button class="chip" type="button" data-ctx="A question I keep coming back to.">a question</button>
-      <button class="chip" type="button" data-ctx="Notes from last time.">notes from last time</button>
-      <button class="chip" type="button" data-ctx="A previous sounding.">a previous sounding</button>
+      <button class="chip" type="button" data-w="ctx.chip1" data-w-ctx="ctx.chip1.text"></button>
+      <button class="chip" type="button" data-w="ctx.chip2" data-w-ctx="ctx.chip2.text"></button>
+      <button class="chip" type="button" data-w="ctx.chip3" data-w-ctx="ctx.chip3.text"></button>
     </div>
-    <p class="note">
-      Context seeds faint marks on the board. They stay faint until your talking actually reaches them,
-      then they become real. Nothing you bring counts as something you said. Seeding before you drop only
-      stores the text — labels aren't known until you start talking. Names here also help the transcriber
-      from the next drop.
-    </p>
+    <p class="note" data-w="ctx.note"></p>
     <div class="row">
-      <button class="act" type="button" data-act="seed">Seed the board</button>
-      <button class="act quiet" type="button" data-act="clear">Clear</button>
+      <button class="act" type="button" data-act="seed" data-w="ctx.seed"></button>
+      <button class="act quiet" type="button" data-act="clear" data-w="ctx.clear"></button>
     </div>`
+  applyWords(el)
   const textarea = el.querySelector('textarea') as HTMLTextAreaElement
   contextTextareas.push(textarea)
   textarea.addEventListener('input', () => {
@@ -1350,6 +1382,10 @@ ctxOpenBtn.addEventListener('click', () => layout.showContext())
 
 syncCtxOpenVisibility()
 sheet.set('peek')
+applyWords()
+sayState(stateSaid.key)
+// the listening language may have been changed from another device: ask, quietly, and follow it
+idleSocket().then((s) => s.send(JSON.stringify({ type: 'setup' })), () => {})
 window.addEventListener('resize', () => {
   sheet.set(sheet.get())
   board.relayout()
