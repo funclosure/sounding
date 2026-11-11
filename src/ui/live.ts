@@ -246,6 +246,8 @@ function finish(statusText: string, opts?: { keepStatusClass?: boolean; keepSock
 function syncCtxOpenVisibility() {
   ctxOpenBtn.hidden = state !== 'idle'
   earlierBtn.hidden = state !== 'idle'
+  // the corner holds the counters while a sounding runs, and the way to earlier ones when nothing is running
+  counters.hidden = state === 'idle'
 }
 
 // Rebuilds both chart renderers (sheet + desktop panel) from every reading
@@ -649,13 +651,16 @@ function tell(msg: { type: 'earlier' } | { type: 'open' | 'remove'; name: string
 
 function renderEarlier() {
   earlierEl.hidden = !earlierOpen
+  // the word in the corner opens the list and, while it is open, closes it
+  earlierBtn.textContent = earlierOpen ? 'close' : 'earlier'
+  earlierBtn.setAttribute('aria-expanded', String(earlierOpen))
   if (!earlierOpen) { earlierEl.innerHTML = ''; return }
-  const row = (it: EarlierItem) => `<li${it.name === currentName ? ' aria-current="true"' : ''}><button type="button" class="opt" data-open="${escapeHtml(it.name)}"><b>${escapeHtml(whenOf(it.name))} · ${fmt(it.durationMs)}</b><span>${it.marks.length ? escapeHtml(it.marks.join(', ')) : it.said ? 'nothing stood out' : 'nothing was said'}</span></button><button type="button" class="act quiet" data-remove="${escapeHtml(it.name)}">${confirming === it.name ? 'really remove?' : 'remove'}</button></li>`
+  const row = (it: EarlierItem) => `<li${it.name === currentName ? ' aria-current="true"' : ''}><button type="button" class="opt" data-open="${escapeHtml(it.name)}"><b>${escapeHtml(whenOf(it.name))} · ${fmt(it.durationMs)}</b><span>${it.marks.length ? escapeHtml(it.marks.join(', ')) : it.said ? 'nothing stood out' : 'nothing was said'}</span></button><button type="button" class="x${confirming === it.name ? ' sure' : ''}" data-remove="${escapeHtml(it.name)}" aria-label="${confirming === it.name ? 'Really remove this sounding' : 'Remove this sounding'}">${confirming === it.name ? 'remove?' : '×'}</button></li>`
   const body = earlierFailed ? '<p class="quiet">The server cannot be reached.</p>'
     : !earlierItems ? '<p class="quiet">…</p>'
     : !earlierItems.length ? '<p class="quiet">Nothing saved yet.</p>'
     : `<ul>${earlierItems.map(row).join('')}</ul>`
-  earlierEl.innerHTML = `<p class="wl">earlier soundings</p>${body}<div class="acts"><button type="button" class="act quiet" data-act="close">close</button></div>`
+  earlierEl.innerHTML = `<p class="wl">earlier soundings</p>${body}`
 }
 
 /** Everything a sounding put on the page, taken off again. The page stays idle. */
@@ -751,7 +756,6 @@ earlierBtn.addEventListener('click', () => {
 earlierEl.addEventListener('click', (e) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('[data-open], [data-remove], [data-act]')
   if (!el) return
-  if (el.dataset.act === 'close') { earlierOpen = false; confirming = null; return renderEarlier() }
   if (el.dataset.open) return tell({ type: 'open', name: el.dataset.open })
   const name = el.dataset.remove
   if (!name) return
@@ -759,9 +763,18 @@ earlierEl.addEventListener('click', (e) => {
   confirming = null
   tell({ type: 'remove', name })
 })
-earlierEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { earlierOpen = false; confirming = null; renderEarlier() }
-  e.stopPropagation()
+earlierEl.addEventListener('keydown', (e) => e.stopPropagation())
+// Escape, or a tap anywhere off the list, puts it away
+function closeEarlier() {
+  if (!earlierOpen) return
+  earlierOpen = false
+  confirming = null
+  renderEarlier()
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEarlier() }, true)
+document.addEventListener('pointerdown', (e) => {
+  const t = e.target as Node
+  if (earlierOpen && !earlierEl.contains(t) && !earlierBtn.contains(t)) closeEarlier()
 })
 
 function onMessage(m: LiveMessage) {
