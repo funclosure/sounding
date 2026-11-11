@@ -20,6 +20,7 @@ Guidance:
 - Prefer what recurs or carries weight over what merely sounds like a topic. A named person, a specific memory, a repeated image, or an unresolved worry beats a tidy abstract noun. If someone talking through a job decision keeps mentioning their sister, "sister" is a candidate even though it isn't the "topic".
 - Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself, the language being spoken, or whether the listener understands it. Report only the content being thought about.
 - Labels are short (1-4 words), in the speaker's own vocabulary where possible.
+- Write each label in the language and script the speaker is using. Chinese talk gets Chinese labels, in the same characters (traditional or simplified) as the talk; never translate a label into English. A name or term said in another language stays as it was said.
 - strength (0 to 1): how strongly THIS window of talk supports the concept — recurrence, centrality, emphasis.
 - confidence (0 to 1): how sure you are the concept is real and correctly labeled. Be honest: a missing candidate costs less than a wrong one.
 - Return 0-8 candidates. Fewer, stronger candidates beat padding. Returning zero is fine for filler.`

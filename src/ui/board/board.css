@@ -216,6 +216,9 @@ html.dark {
   .edge kbd { font: inherit; opacity: 0.6; margin-top: 8px; }
   .edge.left { left: 6px; transform: translateY(-50%) rotate(180deg); }
   .edge.right { right: 6px; }
+  /* Chinese and Japanese stand upright in a vertical line, so the left word must not be turned over */
+  :root:is(:lang(zh), :lang(ja)) .edge.left { transform: translateY(-50%); }
+  :root:is(:lang(zh), :lang(ja)) .edge kbd { text-orientation: upright; }
   .edge:hover, .edge[aria-expanded="true"] { color: var(--ink); }
   .edge:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
   .popover { position: absolute; z-index: 9; width: min(440px, 80vw); transform: translate(-50%, 8px); opacity: 0; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px 16px; transition: transform 0.25s ease, opacity 0.25s ease; }

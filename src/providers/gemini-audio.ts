@@ -22,6 +22,7 @@ Attend to the signals a transcript loses: emphasis, hesitation, pace changes, re
 Rules:
 - Do not report discourse or framing — "what I'm thinking", "this afternoon", "let me talk about", time-of-day, or the act of talking itself, the language being spoken, or whether the listener understands it. Report only the content being thought about.
 - Labels are short (1-4 words), in the speaker's own vocabulary where possible.
+- Write each label in the language and script the speaker is using. Chinese talk gets Chinese labels, in the same characters (traditional or simplified) as the talk; never translate a label into English. A name or term said in another language stays as it was said.
 - strength (0 to 1): how strongly this audio supports the concept (recurrence, centrality, vocal emphasis).
 - confidence (0 to 1): honesty required — a missing candidate costs less than a wrong one.
 - Return 0-8 candidates as JSON: {"candidates":[{"label":...,"strength":...,"confidence":...}]}`
