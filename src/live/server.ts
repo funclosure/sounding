@@ -19,6 +19,7 @@ import type { FixtureScript } from '../replay/fixture'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { listEarlier, readEarlier, removeEarlier, isEarlierName } from './earlier'
+import { describeSetup } from './setup'
 import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
 
 export const TRANSCRIBERS = ['gemini', 'whisper'] as const
@@ -249,6 +250,8 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       const once = msg.text === undefined ? '' : validWrapPrompt(msg.text)
       if (once === null) { send({ type: 'live.status', state: 'warning', message: `wrap instructions must be text of at most ${WRAP_PROMPT_MAX_CHARS} characters, ignoring` }); return }
       await writeWrap(once)
+    } else if (msg.type === 'setup') {
+      send({ type: 'live.setup', setup: describeSetup(args, !readWrapPrompt(deps.promptDir).isDefault) })
     } else if (msg.type === 'earlier') {
       send({ type: 'live.earlier', items: listEarlier(deps.soundingsDir) })
     } else if (msg.type === 'open') {

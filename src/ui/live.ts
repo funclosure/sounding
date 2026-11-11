@@ -5,6 +5,8 @@ import type { SoundingEvent } from '../core/events'
 import type { Ms } from '../core/types'
 import type { LiveMessage } from '../live/live-sounding'
 import type { EarlierItem } from '../live/earlier'
+import type { Setup } from '../live/setup'
+import { setupLines } from './setup'
 import { snapshotOf, transcriptAt, laneSeries, ranked } from './board/model'
 import type { ReadingSnapshot } from './board/model'
 import { createBoard } from './board/board'
@@ -32,6 +34,7 @@ const pinnedEl = document.getElementById('pinned') as HTMLElement
 const controls = document.querySelector('.controls') as HTMLElement
 const earlierEl = document.getElementById('earlier') as HTMLElement
 const earlierBtn = document.getElementById('earlierbtn') as HTMLButtonElement
+const setupEl = document.getElementById('setup') as HTMLElement
 const scrim = document.getElementById('scrim') as HTMLElement
 const sheetRoot = document.getElementById('sheet') as HTMLElement
 const grab = document.getElementById('grab') as HTMLElement
@@ -645,8 +648,37 @@ function idleSocket(): Promise<WebSocket> {
   p.then(done, done)
   return p
 }
-function tell(msg: { type: 'earlier' } | { type: 'open' | 'remove'; name: string }) {
-  idleSocket().then((s) => s.send(JSON.stringify(msg)), () => { earlierFailed = true; renderEarlier() })
+function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; name: string }) {
+  idleSocket().then((s) => s.send(JSON.stringify(msg)), () => { earlierFailed = true; setupFailed = true; renderEarlier(); renderSetup() })
+}
+
+// ---- how this is set up: the state word opens a sheet saying which models listen and understand. Read only.
+let setupOpen = false
+let setup: Setup | null = null
+let setupFailed = false
+function renderSetup() {
+  setupEl.hidden = !setupOpen
+  stateEl.setAttribute('aria-expanded', String(setupOpen))
+  if (!setupOpen) { setupEl.innerHTML = ''; return }
+  const body = setupFailed ? '<p class="quiet">The server cannot be reached.</p>'
+    : !setup ? '<p class="quiet">…</p>'
+    : `<ul>${setupLines(setup).map(([name, says]) => `<li><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></li>`).join('')}</ul>`
+  setupEl.innerHTML = `<p class="wl">how this is set up</p>${body}`
+}
+function closeSetup() {
+  if (!setupOpen) return
+  setupOpen = false
+  renderSetup()
+}
+function toggleSetup() {
+  if (state !== 'idle') return
+  layout.closeContext()
+  closeEarlier()
+  setupOpen = !setupOpen
+  setup = null
+  setupFailed = false
+  renderSetup()
+  if (setupOpen) tell({ type: 'setup' })
 }
 
 function renderEarlier() {
@@ -746,6 +778,7 @@ function showEarlier(m: Extract<LiveMessage, { type: 'live.opened' }>) {
 earlierBtn.addEventListener('click', () => {
   if (state !== 'idle') return
   layout.closeContext()
+  closeSetup()
   earlierOpen = !earlierOpen
   confirming = null
   earlierItems = null
@@ -771,10 +804,11 @@ function closeEarlier() {
   confirming = null
   renderEarlier()
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEarlier() }, true)
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeEarlier(); closeSetup() } }, true)
 document.addEventListener('pointerdown', (e) => {
   const t = e.target as Node
   if (earlierOpen && !earlierEl.contains(t) && !earlierBtn.contains(t)) closeEarlier()
+  if (setupOpen && !setupEl.contains(t) && !stateEl.contains(t)) closeSetup()
 })
 
 function onMessage(m: LiveMessage) {
@@ -796,7 +830,7 @@ function onMessage(m: LiveMessage) {
       // else, so the surfaced chart below reflects every reading received
       // during the scrub, not just what was shown live.
       currentName = (m.message ?? '').split('/').pop() || null
-      finish(`saved ${currentName ?? ''}`, { keepSocket: wrap !== null })
+      finish('surfaced', { keepSocket: wrap !== null })
       showSurfaced()
     } else if (m.state === 'warning') {
       console.warn(`live: ${m.message ?? ''}`)
@@ -808,6 +842,7 @@ function onMessage(m: LiveMessage) {
     return
   }
   if (m.type === 'live.wrap') return onWrap(m)
+  if (m.type === 'live.setup') { setup = m.setup; setupFailed = false; return renderSetup() }
   if (m.type === 'live.earlier') { earlierItems = m.items; earlierFailed = false; return renderEarlier() }
   if (m.type === 'live.opened') return showEarlier(m)
   if (m.type === 'live.removed') {
@@ -922,11 +957,13 @@ lanes.onScrub(showAt)
 lanesD.onScrub(showAt)
 stateEl.addEventListener('click', () => {
   if (replaying) backToLive()
+  else toggleSetup()
 })
 stateEl.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return
   e.preventDefault()
   if (replaying) backToLive()
+  else toggleSetup()
 })
 
 type AudioRig = { ctx: AudioContext; stream: MediaStream; node: AudioWorkletNode }
@@ -1017,6 +1054,7 @@ async function start(carry = false) {
   confirming = null
   earlierOpen = false
   renderEarlier()
+  closeSetup()
   board.setLit(null)
   lanes.setLit(null)
   lanesD.setLit(null)

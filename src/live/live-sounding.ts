@@ -21,6 +21,7 @@ import { heardWords } from './heard-words'
 import type { Transcriber } from './transcriber'
 import type { Clock } from './clock'
 import type { EarlierItem } from './earlier'
+import type { Setup } from './setup'
 
 export type { InterpreterName }
 export type LiveMessage =
@@ -36,6 +37,8 @@ export type LiveMessage =
   | { type: 'live.earlier'; items: EarlierItem[] }
   | { type: 'live.opened'; name: string; events: SoundingEvent[]; said: boolean }
   | { type: 'live.removed'; name: string; ok: boolean }
+  // What the server is set up with, when the page asks.
+  | { type: 'live.setup'; setup: Setup }
 
 export interface LiveSoundingOptions {
   interpreterName: InterpreterName
