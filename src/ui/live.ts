@@ -717,12 +717,11 @@ function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; na
 // Remembered here so the next visit starts in it, before the server has answered.
 const LANG_KEY = 'sounding.lang'
 try { const saved = localStorage.getItem(LANG_KEY); if (saved && setTongue(tongueFor(saved, navigator.language))) document.documentElement.lang = currentTongue() } catch { /* starts in English until the server answers */ }
-/** Fills every element that names its word: its text, its placeholder, its aria-label, or the text a chip drops in. */
+/** Fills every element that names its word: its text, its placeholder or its aria-label. */
 function applyWords(root: ParentNode = document) {
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w]'))) el.textContent = w(el.dataset.w as WordKey)
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w-placeholder]'))) el.setAttribute('placeholder', w(el.dataset.wPlaceholder as WordKey))
   for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w-aria]'))) el.setAttribute('aria-label', w(el.dataset.wAria as WordKey))
-  for (const el of Array.from(root.querySelectorAll<HTMLElement>('[data-w-ctx]'))) el.dataset.ctx = w(el.dataset.wCtx as WordKey)
 }
 function useLang(lang: string) {
   try { localStorage.setItem(LANG_KEY, lang) } catch { /* private window: the server will say again next time */ }
@@ -1323,11 +1322,6 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
   el.innerHTML = `
     <h3 data-w="ctx.title"></h3>
     <textarea data-w-placeholder="ctx.placeholder" maxlength="4000"></textarea>
-    <div class="chips">
-      <button class="chip" type="button" data-w="ctx.chip1" data-w-ctx="ctx.chip1.text"></button>
-      <button class="chip" type="button" data-w="ctx.chip2" data-w-ctx="ctx.chip2.text"></button>
-      <button class="chip" type="button" data-w="ctx.chip3" data-w-ctx="ctx.chip3.text"></button>
-    </div>
     <p class="note" data-w="ctx.note"></p>
     <div class="row">
       <button class="act" type="button" data-act="seed" data-w="ctx.seed"></button>
@@ -1339,13 +1333,6 @@ function buildContext(el: HTMLElement, opts: { onSeed?: () => void }) {
   textarea.addEventListener('input', () => {
     for (const t of contextTextareas) if (t !== textarea) t.value = textarea.value
   })
-  for (const chip of Array.from(el.querySelectorAll<HTMLButtonElement>('.chip'))) {
-    chip.addEventListener('click', () => {
-      const extra = chip.dataset.ctx ?? ''
-      const next = (textarea.value.trim() ? textarea.value.trim() + ' ' : '') + extra
-      for (const t of contextTextareas) t.value = next
-    })
-  }
   el.querySelector<HTMLButtonElement>('[data-act="seed"]')!.addEventListener('click', () => {
     contextText = textarea.value.trim()
     broughtText = contextText
