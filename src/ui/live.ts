@@ -7,6 +7,7 @@ import type { LiveMessage } from '../live/live-sounding'
 import type { EarlierItem } from '../live/earlier'
 import type { Setup } from '../live/setup'
 import { setupLines } from './setup'
+import { LANGS } from '../live/langs'
 import { snapshotOf, transcriptAt, laneSeries, ranked } from './board/model'
 import type { ReadingSnapshot } from './board/model'
 import { createBoard } from './board/board'
@@ -648,7 +649,7 @@ function idleSocket(): Promise<WebSocket> {
   p.then(done, done)
   return p
 }
-function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; name: string }) {
+function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; name: string } | { type: 'instructions'; text: string } | { type: 'lang'; lang: string }) {
   idleSocket().then((s) => s.send(JSON.stringify(msg)), () => { earlierFailed = true; setupFailed = true; renderEarlier(); renderSetup() })
 }
 
@@ -656,18 +657,56 @@ function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; na
 let setupOpen = false
 let setup: Setup | null = null
 let setupFailed = false
+// Two of its rows open: the wrap's instructions (an editor) and the language (a list).
+let setupPane: 'rows' | 'instructions' | 'lang' = 'rows'
 function renderSetup() {
   setupEl.hidden = !setupOpen
   stateEl.setAttribute('aria-expanded', String(setupOpen))
   if (!setupOpen) { setupEl.innerHTML = ''; return }
+  const act = (name: string, label: string, quiet = false) => `<button type="button" class="act${quiet ? ' quiet' : ''}" data-act="${name}">${label}</button>`
+  if (setup && setupPane === 'instructions') {
+    setupEl.innerHTML = `<form><p class="wl"><label for="setup-prompt">how the wrap is written</label></p>
+      <textarea id="setup-prompt" maxlength="2000" spellcheck="false">${escapeHtml(setup.instructions)}</textarea>
+      <p class="note">Saved for every sounding, on every device, from the next wrap on. A wrap already on the board stays as it is.</p>
+      <div class="acts"><button type="submit" class="act">save</button>${setup.ownInstructions ? act('default', 'back to the default', true) : ''}${act('back', 'cancel', true)}</div></form>`
+    return
+  }
+  if (setup && setupPane === 'lang') {
+    const code = setup.lang
+    setupEl.innerHTML = `<p class="wl">the language to listen for</p><div class="next" role="group" aria-label="Language">${LANGS.map((l) => `<button type="button" class="opt" data-lang="${l.code}" aria-pressed="${l.code === code}"><b>${escapeHtml(l.name)}</b><span>${escapeHtml(l.says)}</span></button>`).join('')}<button type="button" class="opt" data-act="back"><b>back</b><span>Leave it as it is. A change starts with the next sounding.</span></button></div>`
+    return
+  }
+  const row = ([name, says, opens]: ReturnType<typeof setupLines>[number]) => opens
+    ? `<li><button type="button" class="opt" data-act="${opens}"><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></button></li>`
+    : `<li><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></li>`
   const body = setupFailed ? '<p class="quiet">The server cannot be reached.</p>'
     : !setup ? '<p class="quiet">…</p>'
-    : `<ul>${setupLines(setup).map(([name, says]) => `<li><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></li>`).join('')}</ul>`
+    : `<ul>${setupLines(setup).map(row).join('')}</ul>`
   setupEl.innerHTML = `<p class="wl">how this is set up</p>${body}`
 }
+setupEl.addEventListener('click', (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act], [data-lang]')
+  if (!el) return
+  if (el.dataset.lang) { setupPane = 'rows'; tell({ type: 'lang', lang: el.dataset.lang }); return renderSetup() }
+  const act = el.dataset.act
+  if (act === 'instructions' || act === 'lang') setupPane = act
+  else if (act === 'back') setupPane = 'rows'
+  else if (act === 'default') { setupPane = 'rows'; written.delete('heard'); tell({ type: 'instructions', text: '' }) }
+  renderSetup()
+  if (act === 'instructions') setupEl.querySelector('textarea')?.focus()
+})
+setupEl.addEventListener('submit', (e) => {
+  e.preventDefault()
+  setupPane = 'rows'
+  written.delete('heard') // the plain reading is written again, from the new instructions, the next time it is asked for
+  tell({ type: 'instructions', text: setupEl.querySelector('textarea')?.value ?? '' })
+  renderSetup()
+})
+setupEl.addEventListener('keydown', (e) => e.stopPropagation()) // typing here must not reach the page's T / C shortcuts
 function closeSetup() {
   if (!setupOpen) return
   setupOpen = false
+  setupPane = 'rows'
   renderSetup()
 }
 function toggleSetup() {
@@ -675,6 +714,7 @@ function toggleSetup() {
   layout.closeContext()
   closeEarlier()
   setupOpen = !setupOpen
+  setupPane = 'rows'
   setup = null
   setupFailed = false
   renderSetup()
@@ -842,7 +882,13 @@ function onMessage(m: LiveMessage) {
     return
   }
   if (m.type === 'live.wrap') return onWrap(m)
-  if (m.type === 'live.setup') { setup = m.setup; setupFailed = false; return renderSetup() }
+  if (m.type === 'live.setup') {
+    setup = m.setup
+    setupFailed = false
+    // the wrap's own editor shows the same instructions
+    if (wrapPrompt) wrapPrompt = { text: m.setup.instructions, isDefault: !m.setup.ownInstructions }
+    return renderSetup()
+  }
   if (m.type === 'live.earlier') { earlierItems = m.items; earlierFailed = false; return renderEarlier() }
   if (m.type === 'live.opened') return showEarlier(m)
   if (m.type === 'live.removed') {
