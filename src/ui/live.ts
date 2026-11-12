@@ -13,7 +13,7 @@ import type { ReadingSnapshot } from './board/model'
 import { createBoard } from './board/board'
 import { createHeard } from './board/heard'
 import { columnOrder } from './board/layout'
-import { createDots } from './board/dots'
+import { createDots, dotPaint, readDotColours } from './board/dots'
 import { createTranscript } from './board/transcript'
 import { createLanes } from './board/lanes'
 import { createSheet } from './board/sheet'
@@ -21,7 +21,7 @@ import { createPanels } from './board/panels'
 import { createPopover } from './board/popover'
 import { LIVE_SOCKET_PATH } from '../live/socket-path'
 import { w, isWord, setTongue, tongueFor, currentTongue, type WordKey } from './words'
-import { layoutPicture } from './picture'
+import { layoutPicture, FIELD_SCALE } from './picture'
 import { LENSES, CARRY_MAX_MARKS, carryContext, matchCarried, soundingNote } from './after'
 
 const screen = document.getElementById('screen') as HTMLElement
@@ -568,15 +568,18 @@ async function soundingPicture(foot: string, text: string): Promise<Blob> {
   const measure = (t: string, font: string) => { g.font = font; return g.measureText(t).width }
   const last = readings.at(-1)
   const marks = last ? columnOrder(last.marks).map((m) => ({ label: m.label, p: m.p })) : []
-  const pic = layoutPicture({ marks, head: wrapHead(lens), wrap: text, foot }, { serif: v('--serif'), mono: v('--mono') }, measure)
+  const pic = layoutPicture({ marks, head: wrapHead(lens), wrap: text, foot, drift: headT / 1000 }, { serif: v('--serif'), mono: v('--mono') }, measure)
   const SCALE = 2
   canvas.width = pic.width * SCALE
   canvas.height = pic.height * SCALE
   g.scale(SCALE, SCALE)
   g.fillStyle = v('--paper')
   g.fillRect(0, 0, pic.width, pic.height)
+  const dotCol = readDotColours()
   for (const op of pic.ops) {
-    if (op.kind === 'rule') { g.fillStyle = v('--line'); g.fillRect(op.x, op.y, op.w, 1) }
+    g.globalAlpha = 1
+    if (op.kind === 'field') { const paint = dotPaint(op.b, dotCol); g.globalAlpha = paint.alpha; g.fillStyle = paint.fill; g.beginPath(); g.arc(op.x, op.y, paint.r * FIELD_SCALE, 0, Math.PI * 2); g.fill() }
+    else if (op.kind === 'rule') { g.fillStyle = v('--line'); g.fillRect(op.x, op.y, op.w, 1) }
     else if (op.kind === 'dot') { g.fillStyle = v('--light'); g.beginPath(); g.arc(op.x, op.y, op.r, 0, Math.PI * 2); g.fill() }
     else { g.font = op.font; g.fillStyle = colors[op.color]; g.textAlign = op.align; g.textBaseline = 'alphabetic'; g.fillText(op.text, op.x, op.y) }
   }

@@ -102,6 +102,26 @@ const hex = (c: string): number[] => {
 const mix = (p: number[], q: number[], u: number) =>
   `rgb(${Math.round(p[0] + (q[0] - p[0]) * u)},${Math.round(p[1] + (q[1] - p[1]) * u)},${Math.round(p[2] + (q[2] - p[2]) * u)})`
 
+export interface DotColours { dot: number[]; accent: number[]; hot: number[]; alpha: number }
+/** The field's colours, from the mood the page is wearing. */
+export function readDotColours(): DotColours {
+  const s = getComputedStyle(document.documentElement)
+  return {
+    dot: hex(s.getPropertyValue('--ink-quiet')), accent: hex(s.getPropertyValue('--light')), hot: hex(s.getPropertyValue('--ink')),
+    alpha: document.documentElement.classList.contains('dark') ? 0.95 : 0.7,
+  }
+}
+/** How one dot is painted for what it has to say (b, about 0 to 1.25): fainter and smaller when quiet, the accent when loud. */
+export function dotPaint(b: number, col: DotColours): { alpha: number; fill: string; r: number } {
+  return {
+    alpha: col.alpha * (0.12 + 0.88 * Math.min(1, b)) * smoothstep(0.012, 0.09, b),
+    fill: b < 0.85 ? mix(col.dot, col.accent, smoothstep(0.38, 0.62, b)) : mix(col.accent, col.hot, smoothstep(0.95, 1.25, b)),
+    r: 1.2 + 5 * Math.min(b, 1.25),
+  }
+}
+/** A mark's pool reaches this far, from its share of the field. */
+export const poolRadius = (prom: number): number => 46 + 190 * Math.sqrt(prom)
+
 export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
   const g = canvas.getContext('2d')
   // Reduced motion: the field is movement and nothing else, so it stays off.
@@ -109,14 +129,8 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
 
   let W = 0, H = 0, DOT = 24, cols = 0, rows = 0
   let eased = new Float32Array(0)
-  let col = { dot: [0, 0, 0], accent: [0, 0, 0], hot: [0, 0, 0], alpha: 0.7 }
-  const readColours = () => {
-    const s = getComputedStyle(document.documentElement)
-    col = {
-      dot: hex(s.getPropertyValue('--ink-quiet')), accent: hex(s.getPropertyValue('--light')), hot: hex(s.getPropertyValue('--ink')),
-      alpha: document.documentElement.classList.contains('dark') ? 0.95 : 0.7,
-    }
-  }
+  let col: DotColours = { dot: [0, 0, 0], accent: [0, 0, 0], hot: [0, 0, 0], alpha: 0.7 }
+  const readColours = () => { col = readDotColours() }
   const resize = () => {
     const r = canvas.getBoundingClientRect()
     const dpr = Math.min(devicePixelRatio || 1, 2)
@@ -190,7 +204,7 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
       p.prom += ((p.seen ? p.target : 0) - p.prom) * (1 - Math.exp(-dt / 1.2))
       p.life += ((p.seen ? 1 : 0) - p.life) * (1 - Math.exp(-dt / 1.1))
       p.pulse *= Math.exp(-dt / 1.4)
-      p.r = (46 + 190 * Math.sqrt(p.prom)) * (W < 640 ? 0.7 : 1)
+      p.r = poolRadius(p.prom) * (W < 640 ? 0.7 : 1)
       if (!p.seen && p.life < 0.02) pools.delete(p.id)
     }
     for (let i = rings.length - 1; i >= 0; i--) if (t - rings[i].born > RING_LIFE_S) rings.splice(i, 1)
@@ -254,10 +268,11 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
         b = Math.max(Math.min(0.06 * close, ceiling), b)
         b = eased[idx] += (b - eased[idx]) * k
         if (b < 0.012) continue
-        g.globalAlpha = col.alpha * (0.12 + 0.88 * Math.min(1, b)) * smoothstep(0.012, 0.09, b)
-        g.fillStyle = b < 0.85 ? mix(col.dot, col.accent, smoothstep(0.38, 0.62, b)) : mix(col.accent, col.hot, smoothstep(0.95, 1.25, b))
+        const paint = dotPaint(b, col)
+        g.globalAlpha = paint.alpha
+        g.fillStyle = paint.fill
         g.beginPath()
-        g.arc(x, y, 1.2 + 5 * Math.min(b, 1.25), 0, TAU)
+        g.arc(x, y, paint.r, 0, TAU)
         g.fill()
       }
     }

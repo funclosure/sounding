@@ -30,9 +30,7 @@ describe('laying out the picture', () => {
   it('puts everything in, top to bottom, inside the picture', () => {
     expect(pic.width).toBe(PICTURE_WIDTH)
     expect(texts.map((t) => t.text)).toEqual(['APP 上線', 'Keeper', '我聽見了…', '你一直回到的是推廣。', '兩個角色', '產品已經可以付款', 'Sounding · 1:33'])
-    const ys = pic.ops.map((o) => o.y)
-    expect([...ys].sort((a, b) => a - b)).toEqual(ys.slice().sort((a, b) => a - b))
-    expect(Math.max(...ys)).toBeLessThan(pic.height)
+    expect(Math.max(...pic.ops.map((o) => o.y))).toBeLessThan(pic.height)
     expect(texts.map((t) => t.y)).toEqual([...texts.map((t) => t.y)].sort((a, b) => a - b))
   })
   it('makes the most prominent word the largest and the darkest, and gives each bullet its dot', () => {
@@ -44,11 +42,22 @@ describe('laying out the picture', () => {
   it('draws a long word in so it stays inside the edges', () => {
     const long = layoutPicture({ ...input, marks: [{ label: 'data structure and algorithm', p: 0.5 }] }, fonts, measure)
     const first = long.ops.find((o) => o.kind === 'text')!
+    expect(first.kind).toBe('text')
     expect(measure('data structure and algorithm', (first as { font: string }).font)).toBeLessThanOrEqual(PICTURE_WIDTH - 176)
   })
   it('grows with the wrap, and needs no rule when nothing stood out', () => {
     const more = layoutPicture({ ...input, wrap: input.wrap + '\n- 還有一件事' }, fonts, measure)
     expect(more.height).toBeGreaterThan(pic.height)
     expect(layoutPicture({ ...input, marks: [] }, fonts, measure).ops.some((o) => o.kind === 'rule')).toBe(false)
+  })
+  it('lays the dot field behind the words: around them, never under them, and never behind the reading', () => {
+    const dots = pic.ops.filter((o) => o.kind === 'field')
+    const rule = pic.ops.find((o) => o.kind === 'rule')!
+    expect(dots.length).toBeGreaterThan(40)
+    expect(pic.ops.findIndex((o) => o.kind !== 'field')).toBe(dots.length) // drawn first, under everything
+    expect(Math.max(...dots.map((d) => d.y))).toBeLessThan(rule.y + 40)
+    const top = texts[0], half = measure(top.text, top.font) / 2
+    expect(dots.some((d) => Math.abs(d.x - top.x) < half && Math.abs(d.y - (top.y - px(top.font) * 0.34)) < px(top.font) * 0.5)).toBe(false)
+    expect(layoutPicture({ ...input, drift: 40 }, fonts, measure).ops.filter((o) => o.kind === 'field')).not.toEqual(dots)
   })
 })
