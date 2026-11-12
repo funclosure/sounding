@@ -21,6 +21,7 @@ import { createPanels } from './board/panels'
 import { createPopover } from './board/popover'
 import { LIVE_SOCKET_PATH } from '../live/socket-path'
 import { w, isWord, setTongue, tongueFor, currentTongue, type WordKey } from './words'
+import { layoutPicture } from './picture'
 import { LENSES, CARRY_MAX_MARKS, carryContext, matchCarried, soundingNote } from './after'
 
 const screen = document.getElementById('screen') as HTMLElement
@@ -438,7 +439,7 @@ function renderWrap() {
     const arriving = !wrapRevealed.has(wrap.text)
     wrapRevealed.add(wrap.text)
     wrapEl.style.setProperty('--word-every', `${WORD_EVERY_MS}ms`)
-    const choices = `${others}${opt('note', w('note'), w('note.says'))}${fresh}`
+    const choices = `${others}${opt('note', w('note'), w('note.says'))}${opt('picture', w('picture'), w('picture.says'))}${fresh}`
     const late = `${arriving ? ' arriving' : ''}" style="--i:${said.words}`
     // the marker under a page says there are two, which one this is, and leads to the other
     const marker = (page: 0 | 1) => `<div class="marker${page === 0 ? late : ''}"><button type="button" class="go" data-act="page:0"${page === 0 ? ' disabled' : ''}>${w('page.reading')}</button><span class="pips" aria-hidden="true"><i${page === 0 ? ' class="on"' : ''}></i><i${page === 1 ? ' class="on"' : ''}></i></span><button type="button" class="go" data-act="page:1"${page === 1 ? ' disabled' : ''}>${w('page.next')}</button></div>`
@@ -548,12 +549,62 @@ wrapEl.addEventListener('click', (e) => {
     confirming = null
     return tell({ type: 'remove', name: currentName })
   }
-  if (act === 'note' && wrap?.state === 'done') {
+  if ((act === 'note' || act === 'picture') && wrap?.state === 'done') {
     const title = `Sounding · ${(dateOf(currentName) ?? new Date()).toLocaleDateString(dateLocale(), { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
     const says = el.querySelector('span') ?? el
+    if (act === 'picture') return void sharePicture(says, title, wrap.text)
     void navigator.clipboard.writeText(soundingNote({ title, marks: lastMarkLabels(), wrap: wrap.text })).then(() => { says.textContent = w('note.copied') }, () => { says.textContent = w('note.blocked') })
   }
 })
+// The sounding as one picture, in the colours the page is wearing now. Drawn at twice its size so it stays sharp.
+async function soundingPicture(foot: string, text: string): Promise<Blob> {
+  await document.fonts.ready
+  const css = getComputedStyle(document.documentElement)
+  const v = (name: string) => css.getPropertyValue(name).trim()
+  const colors = { ink: v('--ink'), quiet: v('--ink-quiet'), whisper: v('--whisper') }
+  const canvas = document.createElement('canvas')
+  const g = canvas.getContext('2d')
+  if (!g) throw new Error('no canvas')
+  const measure = (t: string, font: string) => { g.font = font; return g.measureText(t).width }
+  const last = readings.at(-1)
+  const marks = last ? columnOrder(last.marks).map((m) => ({ label: m.label, p: m.p })) : []
+  const pic = layoutPicture({ marks, head: wrapHead(lens), wrap: text, foot }, { serif: v('--serif'), mono: v('--mono') }, measure)
+  const SCALE = 2
+  canvas.width = pic.width * SCALE
+  canvas.height = pic.height * SCALE
+  g.scale(SCALE, SCALE)
+  g.fillStyle = v('--paper')
+  g.fillRect(0, 0, pic.width, pic.height)
+  for (const op of pic.ops) {
+    if (op.kind === 'rule') { g.fillStyle = v('--line'); g.fillRect(op.x, op.y, op.w, 1) }
+    else if (op.kind === 'dot') { g.fillStyle = v('--light'); g.beginPath(); g.arc(op.x, op.y, op.r, 0, Math.PI * 2); g.fill() }
+    else { g.font = op.font; g.fillStyle = colors[op.color]; g.textAlign = op.align; g.textBaseline = 'alphabetic'; g.fillText(op.text, op.x, op.y) }
+  }
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('no picture'))), 'image/png'))
+}
+/** Hands the picture to the device's share sheet where there is one (a phone), otherwise saves it as a file. */
+async function sharePicture(says: Element, foot: string, text: string) {
+  try {
+    const blob = await soundingPicture(foot, text)
+    const stamp = /(\d{8}-\d{6})/.exec(currentName ?? '')?.[1] ?? String(Date.now())
+    const file = new File([blob], `sounding-${stamp}.png`, { type: 'image/png' })
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return // the sheet was closed: nothing to say
+      }
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = file.name
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    says.textContent = w('picture.saved')
+  } catch (e) {
+    console.error(e)
+    says.textContent = w('picture.failed')
+  }
+}
 wrapEl.addEventListener('submit', (e) => {
   e.preventDefault()
   lens = 'heard'
