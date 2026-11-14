@@ -60,7 +60,7 @@ function makeInterpreter(name: InterpreterName): Interpreter {
 export class LiveSounding {
   private readonly session: SoundingSession
   private readonly ring = new PcmRing()
-  private readonly segmenter = new Segmenter()
+  private readonly segmenter: Segmenter
   private sent = 0
   private stopClock: (() => void) | null = null
   private stopIdle: (() => void) | null = null
@@ -79,6 +79,8 @@ export class LiveSounding {
   private readonly labels = new Map<string, string>()
 
   constructor(private readonly opts: LiveSoundingOptions) {
+    // Rough interim text is only for show: the clock never cuts a segment out of it, and the transcriber's own finals do all the cutting.
+    this.segmenter = new Segmenter(opts.transcriber.roughInterims ? { maxSegmentMs: Infinity } : {})
     const interpreter = makeInterpreter(opts.interpreterName)
     const config = { ...DEFAULT_SALIENCE_CONFIG }
     const dynamics = new ReadingDynamics(new EmbeddingIdentityResolver(config.similarityThreshold), config)

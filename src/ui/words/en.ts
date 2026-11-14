@@ -96,6 +96,7 @@ export const en = {
   'setup.api': 'paid API',
   'setup.whisper': 'Whisper{model}, on the machine itself. Your voice does not leave it.',
   'setup.geminiHears': 'Gemini, through the paid API.',
+  'setup.elevenHears': 'ElevenLabs, through the paid API. Your sound goes to them.',
   'setup.claudeSub': 'Claude{model}, on your subscription.',
   'setup.claudeApi': 'Claude, through the paid API.',
   'setup.geminiThinks': 'Gemini, through the paid API. It listens to the sound itself.',

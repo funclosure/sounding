@@ -90,6 +90,7 @@ export const zhCN: Record<WordKey, string> = {
   'setup.api': '付费 API',
   'setup.whisper': 'Whisper{model}，就在这台机器上。你的声音不会离开它。',
   'setup.geminiHears': 'Gemini，透过付费 API。',
+  'setup.elevenHears': 'ElevenLabs，透过付费 API。声音会传给他们。',
   'setup.claudeSub': 'Claude{model}，用你的订阅。',
   'setup.claudeApi': 'Claude，透过付费 API。',
   'setup.geminiThinks': 'Gemini，透过付费 API。它直接听声音。',

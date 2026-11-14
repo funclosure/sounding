@@ -8,6 +8,7 @@ export function setupLines(s: Setup): Array<[string, string, ('instructions' | '
   const model = (m: string | null) => ({ model: m ? ` (${m})` : '' })
   const hears = s.transcriber === 'whisper' ? w('setup.whisper', model(s.hearsModel))
     : s.transcriber === 'gemini' ? w('setup.geminiHears')
+    : s.transcriber === 'elevenlabs' ? w('setup.elevenHears')
     : s.transcriber
   const thinks = s.interpreter === 'claude-sub' ? w('setup.claudeSub', model(s.thinksModel))
     : s.interpreter === 'claude' ? w('setup.claudeApi')

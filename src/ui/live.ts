@@ -139,7 +139,7 @@ const liveUrl = portParam
 // preserves the old page's ability to override the server's default (`-i`)
 // without adding UI the brief doesn't call for.
 const interpParam = new URLSearchParams(location.search).get('interp')
-// Same for the transcriber: ?transcriber=gemini|whisper overrides the server's default for this tab.
+// Same for the transcriber: ?transcriber=gemini|whisper|elevenlabs overrides the server's default for this tab.
 const transcriberParam = new URLSearchParams(location.search).get('transcriber')
 let ws: WebSocket | null = null
 let audio: AudioRig | null = null

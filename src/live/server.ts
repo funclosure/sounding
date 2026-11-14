@@ -1,5 +1,5 @@
 // The live server: browser mic ↔ LiveSounding ↔ Gemini. `bun run live`.
-//   bun run live -- [-i gemini|claude|claude-sub|recurrence] [--transcriber gemini|whisper] [--port 8790] [--from <audio>] [--fixture <name> --fake-transcriber] [--speed N] [--headless] [--lang <code|auto>]
+//   bun run live -- [-i gemini|claude|claude-sub|recurrence] [--transcriber gemini|whisper|elevenlabs] [--port 8790] [--from <audio>] [--fixture <name> --fake-transcriber] [--speed N] [--headless] [--lang <code|auto>]
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws'
 import { assertApiAllowed, loadDotEnv } from '../cli/env'
 import { FIXTURES } from '../replay/fixtures/index'
@@ -14,6 +14,7 @@ import { FakeTranscriber } from './fake-transcriber'
 import { streamFile } from './fake-mic'
 import type { Transcriber } from './transcriber'
 import { WhisperTranscriber } from './whisper-transcriber'
+import { elevenFile, ElevenLive } from './elevenlabs'
 import { sharedWhisper, whisperLanguage } from './whisper-server'
 import type { FixtureScript } from '../replay/fixture'
 import { homedir } from 'node:os'
@@ -24,7 +25,7 @@ import { isLang } from './langs'
 import { scriptFor } from './chinese-script'
 import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
 
-export const TRANSCRIBERS = ['gemini', 'whisper'] as const
+export const TRANSCRIBERS = ['gemini', 'whisper', 'elevenlabs'] as const
 export type TranscriberName = (typeof TRANSCRIBERS)[number]
 export function isTranscriberName(x: unknown): x is TranscriberName {
   return typeof x === 'string' && (TRANSCRIBERS as readonly string[]).includes(x)
@@ -93,6 +94,13 @@ async function makeTranscriber(args: Args, clock: Clock, context?: string): Prom
   }
   if (args.transcriber === 'whisper') {
     return new WhisperTranscriber({ open: () => sharedWhisper(), language: whisperLanguage(args.lang), rewrite: scriptFor(args.lang), vocabulary: vocabularyFrom(context ?? '') })
+  }
+  if (args.transcriber === 'elevenlabs') {
+    assertApiAllowed('ElevenLabs hearing (ELEVENLABS_API_KEY)')
+    const elevenKey = process.env.ELEVENLABS_API_KEY
+    if (!elevenKey) throw new Error('ELEVENLABS_API_KEY is not set')
+    const language = whisperLanguage(args.lang)
+    return new WhisperTranscriber({ open: async () => elevenFile(elevenKey), live: new ElevenLive(elevenKey, language), opening: 'reaching ElevenLabs', maxUtteranceMs: 8000, language, rewrite: scriptFor(args.lang) })
   }
   assertApiAllowed('Gemini Transcribe Live (GEMINI_API_KEY)')
   const key = process.env.GEMINI_API_KEY

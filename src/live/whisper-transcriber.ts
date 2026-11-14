@@ -13,6 +13,20 @@ import type { TranscribeFn } from './whisper-server'
 const SAMPLE_RATE = 16_000
 const FRAME = 320 // 20ms
 
+/**
+ * A running guess from somewhere quicker than the transcribe call (a
+ * streaming model). When given, it replaces the once-a-second interim passes:
+ * every chunk is fed to it, its text is shown while an utterance is open, and
+ * it is cut whenever an utterance closes so its next text starts fresh.
+ * `paused` says whether the utterance closed on a pause or was split mid-talk.
+ */
+export interface LiveText {
+  open(onText: (text: string) => void): Promise<void>
+  feed(pcm: Int16Array): void
+  cut(paused: boolean): void
+  close(): void
+}
+
 export interface WhisperTranscriberOptions {
   /** Resolves once the model is loaded and returns the transcribe call. */
   open: () => Promise<TranscribeFn>
@@ -21,6 +35,9 @@ export interface WhisperTranscriberOptions {
   vocabulary?: string[]
   /** Rewrites everything heard (Chinese into the chosen script). The rewritten text is also what primes the next utterance. */
   rewrite?: (text: string) => string
+  /** Shown instead of the status line's default while the model opens. */
+  opening?: string
+  live?: LiveText
   /** A pause this long closes the utterance. */
   endSilenceMs?: number
   /** Continuous talk is closed after this long even without a pause. */
@@ -58,7 +75,7 @@ export class WhisperTranscriber implements Transcriber {
   private cbs: TranscriberCallbacks | null = null
   private transcribe: TranscribeFn | null = null
   private connected = false
-  private readonly o: Required<Omit<WhisperTranscriberOptions, 'open' | 'language' | 'vocabulary' | 'rewrite'>>
+  private readonly o: Required<Omit<WhisperTranscriberOptions, 'open' | 'language' | 'vocabulary' | 'rewrite' | 'opening' | 'live'>>
   private words: string[]
   private lastFinal = ''
 
@@ -76,6 +93,10 @@ export class WhisperTranscriber implements Transcriber {
   private chain: Promise<void> = Promise.resolve()
   private ended = false
   private failing = false
+  /** Finals still being transcribed. Live text for the next utterance waits behind them, so text always arrives in spoken order. */
+  private finalsInFlight = 0
+  private heldLive = ''
+  readonly roughInterims: boolean
 
   constructor(private readonly opts: WhisperTranscriberOptions) {
     this.o = {
@@ -88,18 +109,27 @@ export class WhisperTranscriber implements Transcriber {
       splitSearchMs: opts.splitSearchMs ?? 3000,
     }
     this.words = [...(opts.vocabulary ?? [])]
+    this.roughInterims = opts.live !== undefined
   }
 
   async connect(cbs: TranscriberCallbacks): Promise<void> {
     this.cbs = cbs
-    cbs.onStatus('connecting', 'loading the local whisper model')
+    cbs.onStatus('connecting', this.opts.opening ?? 'loading the local whisper model')
     this.transcribe = await this.opts.open()
+    await this.opts.live?.open((heard) => {
+      if (!this.utterance || this.ended) return
+      const text = this.opts.rewrite ? this.opts.rewrite(heard) : heard
+      if (!text) return
+      if (this.finalsInFlight > 0) this.heldLive = text
+      else this.cbs?.onInterim(text)
+    })
     this.connected = true
     cbs.onStatus('listening')
   }
 
   sendAudio(pcm: Int16Array): void {
     if (this.ended || !this.connected) return
+    this.opts.live?.feed(pcm)
     const all = new Int16Array(this.carry.length + pcm.length)
     all.set(this.carry); all.set(pcm, this.carry.length)
     let off = 0
@@ -116,6 +146,7 @@ export class WhisperTranscriber implements Transcriber {
     if (this.ended) return void (await this.chain)
     this.ended = true
     if (this.utterance) this.close()
+    this.opts.live?.close()
     await this.chain
   }
 
@@ -141,7 +172,7 @@ export class WhisperTranscriber implements Transcriber {
 
     if (ms(this.silentFrames) >= this.o.endSilenceMs) return this.close()
     if (ms(this.utterance.length) >= this.o.maxUtteranceMs) return this.split()
-    if (!this.interimInFlight && ms(this.framesSinceInterim) >= this.o.interimEveryMs && ms(this.voicedFrames) >= this.o.minVoicedMs) this.interim()
+    if (!this.opts.live && !this.interimInFlight && ms(this.framesSinceInterim) >= this.o.interimEveryMs && ms(this.voicedFrames) >= this.o.minVoicedMs) this.interim()
   }
 
   private snapshot(): Int16Array {
@@ -169,7 +200,7 @@ export class WhisperTranscriber implements Transcriber {
     const rest = frames.slice(cut)
     this.utterance = frames.slice(0, cut)
     this.voicedFrames = this.utterance.filter((f) => f.loud).length
-    this.close()
+    this.close(false)
     if (rest.length === 0) return
     this.utterance = rest
     this.voicedFrames = rest.filter((f) => f.loud).length
@@ -194,15 +225,21 @@ export class WhisperTranscriber implements Transcriber {
     })
   }
 
-  private close(): void {
+  private close(paused = true): void {
     const pcm = this.snapshot()
     const voiced = ms(this.voicedFrames) >= this.o.minVoicedMs
     this.utterance = null
     this.generation++
+    this.opts.live?.cut(paused)
+    this.heldLive = ''
     if (!voiced) return
+    this.finalsInFlight++
     this.enqueue(async () => {
       const text = await this.run(pcm)
       if (text) { this.lastFinal = text; this.cbs?.onFinal(text) }
+      this.finalsInFlight--
+      if (this.finalsInFlight === 0 && this.heldLive && this.utterance && !this.ended) this.cbs?.onInterim(this.heldLive)
+      this.heldLive = ''
     })
   }
 
