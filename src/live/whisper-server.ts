@@ -13,10 +13,7 @@ const READY_TIMEOUT_MS = 90_000
 export interface TranscribeOptions { language: string; prompt?: string }
 export type TranscribeFn = (pcm: Int16Array, opts: TranscribeOptions) => Promise<string>
 
-/** 'en-US' → 'en'; 'auto' stays 'auto'. whisper takes bare ISO 639-1 codes. */
-export function whisperLanguage(lang: string): string {
-  return lang === 'auto' ? 'auto' : lang.split('-')[0].toLowerCase()
-}
+export { whisperLanguage } from './langs'
 
 /** Multipart body for whisper-server's /inference. */
 export function inferenceForm(pcm: Int16Array, opts: TranscribeOptions): FormData {
