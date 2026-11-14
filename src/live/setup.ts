@@ -20,6 +20,8 @@ export interface Setup {
   ownInstructions: boolean
   /** The wrap instructions in use, for the sheet's editor. */
   instructions: string
+  /** Set when the page runs the sounding itself with the listener's own keys (src/own): whether both are in, and enough of each to recognise it by. */
+  own?: { keys: boolean; claudeHint: string; elevenHint: string }
 }
 
 const LANG_FILE = 'lang.txt'
