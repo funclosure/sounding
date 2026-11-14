@@ -5,6 +5,8 @@ export interface TranscriberCallbacks {
   onStatus(state: TranscriberState, message?: string): void
 }
 export interface Transcriber {
+  /** true when interim text comes from a rougher source than the finals do: it may be shown but never kept, so every long run must end in a final. */
+  readonly roughInterims?: boolean
   connect(cbs: TranscriberCallbacks): Promise<void>
   sendAudio(pcm: Int16Array): void
   end(): Promise<void>

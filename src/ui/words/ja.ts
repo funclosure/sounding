@@ -97,6 +97,7 @@ export const ja: Record<WordKey, string> = {
   'setup.api': '有料 API',
   'setup.whisper': 'Whisper{model}。このマシンの中で動きます。声は外に出ません。',
   'setup.geminiHears': 'Gemini（有料 API）。',
+  'setup.elevenHears': 'ElevenLabs（有料 API）。音声は ElevenLabs に送られます。',
   'setup.claudeSub': 'Claude{model}。あなたのサブスクリプションで。',
   'setup.claudeApi': 'Claude（有料 API）。',
   'setup.geminiThinks': 'Gemini（有料 API）。音そのものを聞きます。',

@@ -97,6 +97,7 @@ export const zhTW: Record<WordKey, string> = {
   'setup.api': '付費 API',
   'setup.whisper': 'Whisper{model}，就在這台機器上。你的聲音不會離開它。',
   'setup.geminiHears': 'Gemini，透過付費 API。',
+  'setup.elevenHears': 'ElevenLabs，透過付費 API。聲音會傳給他們。',
   'setup.claudeSub': 'Claude{model}，用你的訂閱。',
   'setup.claudeApi': 'Claude，透過付費 API。',
   'setup.geminiThinks': 'Gemini，透過付費 API。它直接聽聲音。',
