@@ -1,7 +1,7 @@
 // Whisper hears Chinese as one language and writes it in whichever characters it likes, often a mix.
 // The chosen language says which script the speaker reads, so what was heard is rewritten into it:
 // character for character, never word for word, so nothing that was said is swapped for a regional synonym.
-// Server only (the dictionaries are large); the page never loads this.
+// The dictionaries are large: the server page never loads this, and the own-keys page fetches it only when Chinese is chosen.
 import * as OpenCC from 'opencc-js'
 
 const toTraditional = OpenCC.Converter({ from: 'cn', to: 'tw' })

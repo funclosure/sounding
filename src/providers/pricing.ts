@@ -10,6 +10,10 @@ export interface LlmPricing {
 export const PRICING: Record<string, LlmPricing> = {
   // Anthropic first-party rates (verified 2026-08 via claude-api skill)
   'claude-opus-5': { inputPerMTok: 5, outputPerMTok: 25, cacheWritePerMTok: 6.25, cacheReadPerMTok: 0.5 },
+  // From the claude-api reference, 2026-11: Sonnet 5.5 $2 / $10 with cache reads at $0.10; Haiku 5.5 $0.10 / $0.50
+  // for prompts of 100K tokens or fewer, which every call here is. Cache-write rates are left to fall back to input.
+  'claude-sonnet-5-5': { inputPerMTok: 2, outputPerMTok: 10, cacheReadPerMTok: 0.1 },
+  'claude-haiku-5-5': { inputPerMTok: 0.1, outputPerMTok: 0.5 },
   // Verified 2026-08-29 against ai.google.dev/gemini-api/docs/pricing (Task 14
   // Step 1). gemini-3.7-flash is the current flagship flash-tier model and is
   // the one used throughout the official audio-understanding guide. Unlike
