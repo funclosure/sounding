@@ -22,7 +22,7 @@ import { listEarlier, readEarlier, removeEarlier, isEarlierName } from './earlie
 import { describeSetup, readLang, saveLang } from './setup'
 import { isLang } from './langs'
 import { scriptFor } from './chinese-script'
-import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
+import { readWrapPrompt, saveWrapPrompt, spokenLanguage, subscriptionWrap, validWrapPrompt, wrapMaterial, writeWrapFile, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap'
 
 export const TRANSCRIBERS = ['gemini', 'whisper'] as const
 export type TranscriberName = (typeof TRANSCRIBERS)[number]
@@ -144,6 +144,8 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
   // adjust the instructions and have the same sounding wrapped again.
   let ended: { material: WrapMaterial; logPath: string; writer: WrapWriter } | null = null
   let wrapRun = 0
+  /** The listening language the current sounding started with; the wrap is told to write in it. */
+  let liveLang = 'auto'
   /** `once`: instructions for this one writing only (another reading of the same sounding); the saved ones are left alone. */
   const writeWrap = async (once?: string) => {
     const e = ended
@@ -190,6 +192,7 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       try {
         const { logPath, summary } = await l.stop(); console.log(summary); console.log(`wrote ${logPath}`)
         const material = wrapMaterial(l.events())
+        material.lang = spokenLanguage(material.transcript, liveLang)
         // Nothing said, nothing to say back.
         ended = writer && material.transcript ? { material, logPath, writer } : null
         // Not awaited: the page gets `writing`, then `stopped` at once, then the wrap when it is ready.
@@ -223,7 +226,8 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       }
       const clock = new Clock(args.speed)
       starting = (async () => {
-        const transcriber = await makeTranscriber({ ...args, interpreter, transcriber: transcriberName, lang: lang() }, clock, context)
+        liveLang = lang()
+        const transcriber = await makeTranscriber({ ...args, interpreter, transcriber: transcriberName, lang: liveLang }, clock, context)
         // A prior sounding on this connection may still be draining and
         // surfacing (stop() in flight); let it finish before this one
         // starts pushing audio into a fresh LiveSounding.
@@ -274,6 +278,7 @@ export function handleLiveConnection(ws: WsSocket, args: Args, deps: LiveDeps = 
       const e = readEarlier(msg.name, deps.soundingsDir)
       if (!e) { send({ type: 'live.status', state: 'warning', message: 'that sounding is no longer there' }); send({ type: 'live.earlier', items: listEarlier(deps.soundingsDir) }); return }
       const material = wrapMaterial(e.events)
+      material.lang = spokenLanguage(material.transcript, lang())
       const writer = deps.wrap !== undefined ? deps.wrap : subscriptionWrap()
       wrapRun++ // a wrap still being written for the sounding shown before is no longer wanted
       ended = writer && material.transcript ? { material, logPath: e.logPath, writer } : null
