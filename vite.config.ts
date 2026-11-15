@@ -1,7 +1,8 @@
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import { soundingDevApi } from './src/devserver/api'
+import { siteHeaders } from './src/own/site-headers'
 import { DEFAULT_LIVE_PORT, LIVE_SOCKET_PATH } from './src/live/socket-path'
 
 /**
@@ -13,8 +14,14 @@ function ownEntry(): Plugin {
   return {
     name: 'sounding-own-entry',
     transformIndexHtml: { order: 'pre', handler: (html) => html.replace('/src/ui/live.ts', '/src/own/main.ts') },
-    // The site has one page, so it is also what the bare address opens.
-    closeBundle() { if (existsSync(join(OWN_OUT, 'live.html'))) copyFileSync(join(OWN_OUT, 'live.html'), join(OWN_OUT, 'index.html')) },
+    closeBundle() {
+      const page = join(OWN_OUT, 'live.html')
+      if (!existsSync(page)) return
+      // The site has one page, so it is also what the bare address opens.
+      copyFileSync(page, join(OWN_OUT, 'index.html'))
+      // Cloudflare Pages reads this for the security headers (see docs/HOSTING.md).
+      writeFileSync(join(OWN_OUT, '_headers'), siteHeaders(readFileSync(page, 'utf8')))
+    },
   }
 }
 const OWN_OUT = resolve(__dirname, 'dist-own')
