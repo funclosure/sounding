@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:own": "vite build --mode own",
+    "deploy:own": "bun run build:own && bunx wrangler@4.148.0 pages deploy dist-own --project-name sounding --branch main",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
