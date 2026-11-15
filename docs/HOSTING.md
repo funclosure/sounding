@@ -86,7 +86,22 @@ every deployment of it.
   visits. Web Analytics is not switched on.
 - **The visitor's browser:** both keys and every sounding (IndexedDB). Nothing
   is sent back to the site.
-- **ElevenLabs:** the sound while a sounding runs, on the visitor's key.
-- **Anthropic:** the words heard and the wrap request, on the visitor's key.
+- **ElevenLabs:** the sound while a sounding runs, on the visitor's key. A
+  pasted key is checked by asking for a single-use token, which costs nothing.
+- **Anthropic:** the words heard and the wrap request, on the visitor's key. A
+  pasted key is checked with one message answered in one token, on the model
+  the marks use, so that an account with no credit is caught at setup. It
+  costs a few millionths of a dollar.
 
-The keys sheet says the same to the visitor before they paste anything.
+The setup says the same to the visitor before they paste anything.
+
+### Carrying the keys to a phone
+
+Once both keys are in, the keys sheet can show a QR code holding the site's
+address with both keys after the `#`. A browser never sends the part after `#`
+to the site, so the keys go from one screen to the other through the camera
+only. The page that opens takes them out of its address before anything else
+runs (`src/own/keys.ts`, `takeCarried`), and keeps them only after the visitor
+says they are theirs, since whoever makes such a link chooses whose accounts
+hear them. The code closes by itself after two minutes: anyone who
+photographs it has both keys.

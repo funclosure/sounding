@@ -11,7 +11,12 @@ export async function elevenToken(key: string, fetchFn: typeof fetch = fetch): P
   try { res = await fetchFn(TOKEN_URL, { method: 'POST', headers: { 'xi-api-key': key } }) }
   catch { throw new Error('cannot reach ElevenLabs') }
   if (res.status === 401 || res.status === 403) throw new Error('ElevenLabs did not accept the key')
-  if (!res.ok) throw new Error(`ElevenLabs: HTTP ${res.status}`)
+  if (!res.ok) {
+    // A key that is not one comes back as 400, with the reason in the body.
+    const detail = ((await res.json().catch(() => ({}))) as { detail?: { type?: string; code?: string } }).detail
+    if (detail?.type === 'authentication_error' || detail?.code === 'invalid_api_key') throw new Error('ElevenLabs did not accept the key')
+    throw new Error(`ElevenLabs: HTTP ${res.status}`)
+  }
   const token = ((await res.json()) as { token?: string }).token
   if (!token) throw new Error('ElevenLabs gave no token')
   return token
