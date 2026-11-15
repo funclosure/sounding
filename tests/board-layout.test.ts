@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, BESIDE_MIN_W } from '../src/ui/board/layout'
+import { fitFontPx, SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, BESIDE_MIN_W } from '../src/ui/board/layout'
 import type { Placed } from '../src/ui/board/layout'
 
 describe('SlotLayout', () => {
@@ -247,5 +247,21 @@ describe('the gathered column', () => {
     const plan = besidePlan(BESIDE_MIN_W, room.words)
     expect(plan.edge - room.words).toBeGreaterThanOrEqual(24)
     expect(plan.left + plan.width).toBeLessThanOrEqual(BESIDE_MIN_W - 24)
+  })
+})
+
+describe('fitFontPx', () => {
+  it('keeps the size prominence asks for when the label fits', () => {
+    expect(fitFontPx(46, 300, 390)).toBe(46)
+    expect(fitFontPx(46, 500, 1100)).toBe(46)
+  })
+  it('draws a label too wide for a phone smaller, so it stays inside the screen', () => {
+    // 390 wide: room is min(0.9 × 390, 390 − 36) = 351
+    const px = fitFontPx(46, 505, 390)
+    expect(px).toBe(31)
+    expect((505 * px) / 46).toBeLessThanOrEqual(351)
+  })
+  it('never goes below the smallest size', () => {
+    expect(fitFontPx(40, 4000, 390)).toBe(13)
   })
 })
