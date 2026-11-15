@@ -7,6 +7,7 @@ import type { LiveMessage } from '../live/engine'
 import type { EarlierItem } from '../live/earlier-core'
 import type { Setup } from '../live/setup'
 import { setupLines } from './setup'
+import { own, type PageSocket } from './socket'
 import { LANGS } from '../live/langs'
 import { snapshotOf, transcriptAt, laneSeries, ranked } from './board/model'
 import type { ReadingSnapshot } from './board/model'
@@ -141,7 +142,10 @@ const liveUrl = portParam
 const interpParam = new URLSearchParams(location.search).get('interp')
 // Same for the transcriber: ?transcriber=gemini|whisper|elevenlabs overrides the server's default for this tab.
 const transcriberParam = new URLSearchParams(location.search).get('transcriber')
-let ws: WebSocket | null = null
+// The own-keys build runs the listener inside the page: its bridge opens a stand-in for the socket.
+const OWN = own()
+const openSocket = (): PageSocket => (OWN ? OWN.open() : (new WebSocket(liveUrl) as unknown as PageSocket))
+let ws: PageSocket | null = null
 let audio: AudioRig | null = null
 // Set as soon as getUserMedia resolves inside setupAudio, cleared once setupAudio
 // either succeeds (into `audio`) or fails. Lets teardownAudio() stop the mic even
@@ -364,7 +368,7 @@ type Wrap =
   | { state: 'failed'; message: string; prompt: string; isDefaultPrompt: boolean }
 let wrap: Wrap | null = null
 let wrapEditing = false
-let wrapWs: WebSocket | null = null
+let wrapWs: PageSocket | null = null
 // the instructions as last reported by the server, kept across a rewrite so the editor always has them
 let wrapPrompt: { text: string; isDefault: boolean } | null = null
 // which reading of the sounding the wrap on screen is: a key of LENSES, or 'own' for instructions typed for this once
@@ -432,14 +436,14 @@ function renderWrap() {
   const head = `<p class="wl">${wrapHead(lens)}</p>`
   const others = `${opt('angle', w('wrap.differently'), w('wrap.differentlySays'))}`
   const fresh = opt('fresh', w('fresh'), w('fresh.says'))
-    + (currentName ? (confirming === currentName ? opt('remove', w('remove.sure'), w('remove.sureSays')) : opt('remove', w('remove'), w('remove.says'))) : '')
+    + (currentName ? (confirming === currentName ? opt('remove', w('remove.sure'), w(OWN ? 'remove.ownSureSays' : 'remove.sureSays')) : opt('remove', w('remove'), w(OWN ? 'remove.ownSays' : 'remove.says'))) : '')
   if (wrap.state === 'writing') wrapEl.innerHTML = head
   else if (wrap.state === 'done') {
     const said = wrapHtml(wrap.text)
     const arriving = !wrapRevealed.has(wrap.text)
     wrapRevealed.add(wrap.text)
     wrapEl.style.setProperty('--word-every', `${WORD_EVERY_MS}ms`)
-    const choices = `${others}${opt('note', w('note'), w('note.says'))}${opt('picture', w('picture'), w('picture.says'))}${fresh}`
+    const choices = `${others}${opt('note', w('note'), w('note.says'))}${opt('picture', w('picture'), w('picture.says'))}${OWN && currentName ? opt('file', w('file'), w('file.says')) : ''}${fresh}`
     const late = `${arriving ? ' arriving' : ''}" style="--i:${said.words}`
     // the marker under a page says there are two, which one this is, and leads to the other
     const marker = (page: 0 | 1) => `<div class="marker${page === 0 ? late : ''}"><button type="button" class="go" data-act="page:0"${page === 0 ? ' disabled' : ''}>${w('page.reading')}</button><span class="pips" aria-hidden="true"><i${page === 0 ? ' class="on"' : ''}></i><i${page === 1 ? ' class="on"' : ''}></i></span><button type="button" class="go" data-act="page:1"${page === 1 ? ' disabled' : ''}>${w('page.next')}</button></div>`
@@ -549,6 +553,14 @@ wrapEl.addEventListener('click', (e) => {
     confirming = null
     return tell({ type: 'remove', name: currentName })
   }
+  if (act === 'file' && OWN && currentName) {
+    const says = el.querySelector('span') ?? el
+    return void OWN.exportSounding(currentName).then((f) => {
+      if (!f) throw new Error('no such sounding')
+      saveFile(new Blob([f.text], { type: 'text/markdown' }), f.filename)
+      says.textContent = w('file.saved')
+    }).catch((e) => { console.error(e); says.textContent = w('file.failed') })
+  }
   if ((act === 'note' || act === 'picture') && wrap?.state === 'done') {
     const title = `Sounding · ${(dateOf(currentName) ?? new Date()).toLocaleDateString(dateLocale(), { day: 'numeric', month: 'short', year: 'numeric' })} · ${fmt(headT)}`
     const says = el.querySelector('span') ?? el
@@ -585,6 +597,15 @@ async function soundingPicture(foot: string, text: string): Promise<Blob> {
   }
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('no picture'))), 'image/png'))
 }
+/** Saves a file the page made, through the browser's own download. */
+function saveFile(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
 /** Hands the picture to the device's share sheet where there is one (a phone), otherwise saves it as a file. */
 async function sharePicture(says: Element, foot: string, text: string) {
   try {
@@ -596,12 +617,7 @@ async function sharePicture(says: Element, foot: string, text: string) {
         if (e instanceof Error && e.name === 'AbortError') return // the sheet was closed: nothing to say
       }
     }
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = file.name
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    saveFile(blob, file.name)
     says.textContent = w('picture.saved')
   } catch (e) {
     console.error(e)
@@ -740,13 +756,13 @@ const dateLocale = (): string | undefined => { const t = currentTongue(); return
 const whenOf = (name: string): string => dateOf(name)?.toLocaleString(dateLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) ?? name
 
 // Between soundings the page talks to the server on the ended sounding's socket if it is still open, or on one opened for the purpose.
-let idleConnecting: Promise<WebSocket> | null = null
-function idleSocket(): Promise<WebSocket> {
+let idleConnecting: Promise<PageSocket> | null = null
+function idleSocket(): Promise<PageSocket> {
   if (wrapWs && wrapWs.readyState === WebSocket.OPEN) return Promise.resolve(wrapWs)
   if (idleConnecting) return idleConnecting
   const mine = gen
-  const p = new Promise<WebSocket>((resolve, reject) => {
-    const socket = new WebSocket(liveUrl)
+  const p = new Promise<PageSocket>((resolve, reject) => {
+    const socket = openSocket()
     socket.onopen = () => {
       if (mine !== gen || state !== 'idle') { socket.close(); return reject(new Error('a sounding has started')) }
       wrapWs = socket
@@ -795,7 +811,10 @@ let setupOpen = false
 let setup: Setup | null = null
 let setupFailed = false
 // Two of its rows open: the wrap's instructions (an editor) and the language (a list).
-let setupPane: 'rows' | 'instructions' | 'lang' = 'rows'
+let setupPane: 'rows' | 'instructions' | 'lang' | 'keys' | 'model' = 'rows'
+// The own-keys build only: what the last try at saving the keys came to, said under the two boxes.
+let keysSaid = ''
+let keysBusy = false
 function renderSetup() {
   setupEl.hidden = !setupOpen
   stateEl.setAttribute('aria-expanded', String(setupOpen))
@@ -804,8 +823,23 @@ function renderSetup() {
   if (setup && setupPane === 'instructions') {
     setupEl.innerHTML = `<form><p class="wl"><label for="setup-prompt">${w('setup.how')}</label></p>
       <textarea id="setup-prompt" maxlength="2000" spellcheck="false">${escapeHtml(setup.instructions)}</textarea>
-      <p class="note">${w('setup.note')}</p>
+      <p class="note">${w(OWN ? 'setup.ownNote' : 'setup.note')}</p>
       <div class="acts"><button type="submit" class="act">${w('save')}</button>${setup.ownInstructions ? act('default', w('default'), true) : ''}${act('back', w('cancel'), true)}</div></form>`
+    return
+  }
+  if (OWN && setupPane === 'keys') {
+    const have = setup?.own?.keys ?? OWN.hasKeys()
+    const box = (id: string, label: string, hint: string) => `<label class="kl" for="${id}">${label}</label><input id="${id}" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${escapeHtml(hint)}"${keysBusy ? ' disabled' : ''}>`
+    setupEl.innerHTML = `<form><p class="wl">${w('keys.title')}</p>
+      ${box('key-claude', w('keys.claude'), setup?.own?.claudeHint ?? '')}${box('key-eleven', w('keys.eleven'), setup?.own?.elevenHint ?? '')}
+      <p class="note">${w('keys.note')}</p>${have ? `<p class="note">${w('keys.kept')}</p>` : ''}
+      <p class="note said" role="status">${escapeHtml(keysBusy ? w('keys.checking') : keysSaid)}</p>
+      <div class="acts"><button type="submit" class="act"${keysBusy ? ' disabled' : ''}>${w('save')}</button>${have ? act('forget', w('keys.forget'), true) : ''}${act('back', w('cancel'), true)}</div></form>`
+    return
+  }
+  if (OWN && setup && setupPane === 'model') {
+    const now = setup.thinksModel
+    setupEl.innerHTML = `<p class="wl">${w('model.title')}</p><div class="next" role="group" aria-label="${w('model.title')}">${OWN.models().map((m) => `<button type="button" class="opt" data-model="${m}" aria-pressed="${m === now}"><b>${w(`model.${m}` as WordKey)}</b><span>${w(`model.${m}.says` as WordKey)}</span></button>`).join('')}<button type="button" class="opt" data-act="back"><b>${w('back')}</b><span>${w('model.back')}</span></button></div>`
     return
   }
   if (setup && setupPane === 'lang') {
@@ -816,24 +850,47 @@ function renderSetup() {
   const row = ([name, says, opens]: ReturnType<typeof setupLines>[number]) => opens
     ? `<li><button type="button" class="opt" data-act="${opens}"><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></button></li>`
     : `<li><b>${escapeHtml(name)}</b><span>${escapeHtml(says)}</span></li>`
-  const body = setupFailed ? `<p class="quiet">${w('unreachable')}</p>`
+  const body = setupFailed ? `<p class="quiet">${w(OWN ? 'unreachable.own' : 'unreachable')}</p>`
     : !setup ? '<p class="quiet">…</p>'
     : `<ul>${setupLines(setup).map(row).join('')}</ul>`
   setupEl.innerHTML = `<p class="wl">${w('setup.title')}</p>${body}`
 }
 setupEl.addEventListener('click', (e) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act], [data-lang]')
+  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act], [data-lang], [data-model]')
   if (!el) return
   if (el.dataset.lang) { setupPane = 'rows'; tell({ type: 'lang', lang: el.dataset.lang }); return renderSetup() }
+  if (el.dataset.model && OWN) { OWN.saveModel(el.dataset.model); setupPane = 'rows'; tell({ type: 'setup' }); return renderSetup() }
   const act = el.dataset.act
-  if (act === 'instructions' || act === 'lang') setupPane = act
+  if (act === 'instructions' || act === 'lang' || act === 'keys' || act === 'model') { setupPane = act; keysSaid = '' }
+  else if (act === 'forget' && OWN) { OWN.forgetKeys(); keysSaid = ''; tell({ type: 'setup' }) }
   else if (act === 'back') setupPane = 'rows'
   else if (act === 'default') { setupPane = 'rows'; written.delete('heard'); tell({ type: 'instructions', text: '' }) }
   renderSetup()
   if (act === 'instructions') setupEl.querySelector('textarea')?.focus()
+  if (act === 'keys') setupEl.querySelector('input')?.focus()
 })
+/** The own-keys build: both keys are checked with their providers, and kept in this browser unless one was refused. */
+async function saveKeys() {
+  if (!OWN || keysBusy) return
+  const typed = { claude: setupEl.querySelector<HTMLInputElement>('#key-claude')?.value ?? '', eleven: setupEl.querySelector<HTMLInputElement>('#key-eleven')?.value ?? '' }
+  keysBusy = true
+  renderSetup()
+  let r: Awaited<ReturnType<typeof OWN.saveKeys>>
+  try { r = await OWN.saveKeys(typed) } finally { keysBusy = false }
+  keysSaid = r.claude === 'missing' || r.eleven === 'missing' ? w('keys.missing')
+    : r.claude === 'refused' ? w('keys.refused.claude')
+    : r.eleven === 'refused' ? w('keys.refused.eleven')
+    : r.claude === 'unreachable' || r.eleven === 'unreachable' ? w('keys.unreachable') : ''
+  if (r.saved) {
+    tell({ type: 'setup' })
+    if (!keysSaid) setupPane = 'rows'
+    if (stateSaid.key === 'state.needkeys') setState('state.ready', false)
+  }
+  if (setupOpen) renderSetup()
+}
 setupEl.addEventListener('submit', (e) => {
   e.preventDefault()
+  if (setupPane === 'keys') return void saveKeys()
   setupPane = 'rows'
   written.delete('heard') // the plain reading is written again, from the new instructions, the next time it is asked for
   tell({ type: 'instructions', text: setupEl.querySelector('textarea')?.value ?? '' })
@@ -845,6 +902,19 @@ function closeSetup() {
   setupOpen = false
   setupPane = 'rows'
   renderSetup()
+}
+/** The own-keys build: a sounding cannot start without both keys, so the circle opens the place to put them. */
+function askKeys() {
+  layout.closeContext()
+  closeEarlier()
+  setupOpen = true
+  setupPane = 'keys'
+  keysSaid = ''
+  setupFailed = false
+  setState('state.needkeys', false)
+  renderSetup()
+  tell({ type: 'setup' })
+  setupEl.querySelector('input')?.focus()
 }
 function toggleSetup() {
   if (state !== 'idle') return
@@ -869,6 +939,7 @@ function renderEarlier() {
     : !earlierItems ? '<p class="quiet">…</p>'
     : !earlierItems.length ? `<p class="quiet">${w('earlier.none')}</p>`
     : `<ul>${earlierItems.map(row).join('')}</ul>`
+  if (earlierFailed && OWN) { earlierEl.innerHTML = `<p class="wl">${w('earlier.title')}</p><p class="quiet">${w('unreachable.own')}</p>`; return }
   earlierEl.innerHTML = `<p class="wl">${w('earlier.title')}</p>${body}`
 }
 
@@ -1156,7 +1227,7 @@ type AudioRig = { ctx: AudioContext; stream: MediaStream; node: AudioWorkletNode
 // Does not assign the module-level `audio` — the caller (onopen) decides
 // whether this rig is still wanted (the session may have been superseded or
 // torn down while getUserMedia/addModule was in flight) before claiming it.
-async function setupAudio(socket: WebSocket): Promise<AudioRig> {
+async function setupAudio(socket: PageSocket): Promise<AudioRig> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
   pendingStream = stream
   let ctx: AudioContext | null = null
@@ -1278,7 +1349,7 @@ async function start(carry = false) {
   sheet.showTab('transcript')
   if (sheet.get() !== 'peek') sheet.set('peek')
 
-  const socket = new WebSocket(liveUrl)
+  const socket = openSocket()
   socket.binaryType = 'arraybuffer'
   // onerror never owns state — a socket error is always followed by a close
   // event (per the WebSocket spec), and onclose is the one place that decides
@@ -1361,7 +1432,7 @@ async function stop() {
 
 big.addEventListener('click', () => {
   layout.closeContext()
-  if (state === 'idle') void start(canCarry())
+  if (state === 'idle') { if (OWN && !OWN.hasKeys()) askKeys(); else void start(canCarry()) }
   else if (state === 'live') void stop()
 })
 
