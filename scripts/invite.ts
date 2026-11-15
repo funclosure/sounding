@@ -8,6 +8,7 @@
 //   bun run invite extend <id> [--days N] [--minutes N]
 //   bun run invite revoke <id>      (and: restore <id>)
 //   bun run invite release <id>     the same link works again, on a new device
+//   bun run invite remove <id>      gone from the list (withdrawn, expired or used up only)
 //   bun run invite admin-link       signs a phone in to the invites page (run it in your own terminal)
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -66,10 +67,10 @@ function config(): Config {
   return JSON.parse(readFileSync(CONFIG, 'utf8')) as Config
 }
 
-async function call(path: string, body?: unknown): Promise<Record<string, unknown>> {
+async function call(path: string, body?: unknown, method?: string): Promise<Record<string, unknown>> {
   const { site } = config()
   const res = await fetch(`${site}/api/admin${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
+    method: method ?? (body === undefined ? 'GET' : 'POST'),
     headers: { authorization: `Bearer ${readFileSync(SECRET, 'utf8').trim()}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
@@ -118,6 +119,13 @@ async function main(argv: string[]): Promise<void> {
       for (const v of r.invites) console.log(line(v))
       if (!r.invites.length) console.log('No invites yet.')
       console.log(`${r.month.month}: $${r.month.spentUsd.toFixed(2)} of the $${r.month.capUsd} monthly cap spent.`)
+      return
+    }
+    case 'remove': {
+      const id = rest[0]
+      if (!id) throw new Error('Which invite? `bun run invite remove <id>` (ids are in `bun run invite list`)')
+      await call(`/invites/${id}`, undefined, 'DELETE')
+      console.log(`${id} removed.`)
       return
     }
     case 'extend': case 'revoke': case 'restore': case 'release': {

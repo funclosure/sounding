@@ -46,7 +46,8 @@ const MAX_AUDIO_BYTES = 1_000_000
 const WAV_HEADER = 44
 const PCM_BYTES_PER_SEC = 32_000
 
-export type InviteState = 'ok' | 'expired' | 'used' | 'revoked' | 'cap'
+import { removable, type InviteState } from './invite-state'
+export { removable, type InviteState }
 export interface InviteView {
   id: string
   name: string
@@ -294,6 +295,15 @@ async function admin(req: Request, path: string, env: RelayEnv, db: D1, now: num
     return json({ token, invite: adminView(row!) }, 201)
   }
   const m = /^\/api\/admin\/invites\/([\w-]+)$/.exec(path)
+  // Removing an invite that can no longer be used: withdrawn, expired or used up. One still open is withdrawn first,
+  // so a friend is never cut off by a tidy-up. The month's spend keeps what it cost.
+  if (m && req.method === 'DELETE') {
+    const row = await db.prepare('SELECT * FROM invites WHERE id = ?').bind(m[1]).first<Row>()
+    if (!row) return refuse(404, 'unknown', 'No such invite.')
+    if (!removable(stateOf(row, now, spent, capUsd))) return refuse(409, 'still_open', 'Withdraw it first: it can still be used.')
+    await db.prepare('DELETE FROM invites WHERE id = ?').bind(row.id).run()
+    return json({ removed: row.id })
+  }
   if (m && req.method === 'POST') {
     const row = await db.prepare('SELECT * FROM invites WHERE id = ?').bind(m[1]).first<Row>()
     if (!row) return refuse(404, 'unknown', 'No such invite.')
