@@ -21,8 +21,9 @@ import type { FixtureScript } from '../replay/fixture'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { listEarlier, readEarlier, removeEarlier } from './earlier'
-import { describeSetup, readLang, saveLang } from './setup'
+import { describeSetup, readLang, saveLang, readScript, saveScript } from './setup'
 import { scriptFor } from './chinese-script'
+import type { ChineseScript } from './script-pref'
 import { readWrapPrompt, saveWrapPrompt, subscriptionWrap, writeWrapFile, type WrapWriter } from './wrap'
 import { liveConnection, type LiveHost } from './connection'
 
@@ -74,7 +75,7 @@ export function parseArgs(argv: string[]): Args {
 }
 
 /** `context` only affects the real client's custom vocabulary — fixture/`--from` playback ignores it. */
-async function makeTranscriber(args: Args, clock: Clock, context?: string): Promise<Transcriber> {
+async function makeTranscriber(args: Args, clock: Clock, context?: string, script: ChineseScript = 'heard'): Promise<Transcriber> {
   if (args.fakeTranscriber) {
     let script: FixtureScript | undefined
     if (args.fixture) script = FIXTURES.find((f) => f.name === args.fixture)
@@ -83,14 +84,14 @@ async function makeTranscriber(args: Args, clock: Clock, context?: string): Prom
     return new FakeTranscriber(script, clock)
   }
   if (args.transcriber === 'whisper') {
-    return new WhisperTranscriber({ open: () => sharedWhisper(), language: whisperLanguage(args.lang), rewrite: scriptFor(args.lang), vocabulary: vocabularyFrom(context ?? '') })
+    return new WhisperTranscriber({ open: () => sharedWhisper(), language: whisperLanguage(args.lang), rewrite: scriptFor(args.lang, script), vocabulary: vocabularyFrom(context ?? '') })
   }
   if (args.transcriber === 'elevenlabs') {
     assertApiAllowed('ElevenLabs hearing (ELEVENLABS_API_KEY)')
     const elevenKey = process.env.ELEVENLABS_API_KEY
     if (!elevenKey) throw new Error('ELEVENLABS_API_KEY is not set')
     const language = whisperLanguage(args.lang)
-    return new WhisperTranscriber({ open: async () => elevenFile(elevenKey), live: new ElevenLive(elevenKey, language, nodeElevenSocket), opening: 'reaching ElevenLabs', maxUtteranceMs: 8000, language, rewrite: scriptFor(args.lang) })
+    return new WhisperTranscriber({ open: async () => elevenFile(elevenKey), live: new ElevenLive(elevenKey, language, nodeElevenSocket), opening: 'reaching ElevenLabs', maxUtteranceMs: 8000, language, rewrite: scriptFor(args.lang, script) })
   }
   assertApiAllowed('Gemini Transcribe Live (GEMINI_API_KEY)')
   const key = process.env.GEMINI_API_KEY
@@ -139,14 +140,17 @@ export interface LiveDeps {
 export function nodeHost(args: Args, deps: LiveDeps = {}): LiveHost {
   const dir = deps.soundingsDir ?? 'soundings'
   const lang = () => readLang(deps.promptDir) ?? args.lang
+  const script = () => readScript(deps.promptDir) ?? 'heard'
   // The clock of the sounding being listened to: a recording played in as the microphone keeps time with it.
   let liveClock: Clock | null = null
   return {
     lang,
     saveLang: (code) => saveLang(code, deps.promptDir),
+    script,
+    saveScript: (s) => saveScript(s, deps.promptDir),
     wrapPrompt: () => readWrapPrompt(deps.promptDir),
     saveWrapPrompt: (text) => saveWrapPrompt(text, deps.promptDir),
-    setup: () => describeSetup({ ...args, lang: lang() }, readWrapPrompt(deps.promptDir)),
+    setup: () => describeSetup({ ...args, lang: lang(), script: script() }, readWrapPrompt(deps.promptDir)),
     async create(req, liveLang, send) {
       let interpreter = args.interpreter
       if (req.interpreter !== undefined) {
@@ -159,7 +163,7 @@ export function nodeHost(args: Args, deps: LiveDeps = {}): LiveHost {
         else send({ type: 'live.status', state: 'warning', message: `unknown transcriber ${String(req.transcriber)}, using ${transcriberName}` })
       }
       const clock = new Clock(args.speed)
-      const transcriber = await makeTranscriber({ ...args, interpreter, transcriber: transcriberName, lang: liveLang }, clock, req.context)
+      const transcriber = await makeTranscriber({ ...args, interpreter, transcriber: transcriberName, lang: liveLang }, clock, req.context, script())
       const soundingId = `live-${stampName(new Date()).slice(4)}.${interpreter}`
       const sounding = new LiveSounding({ interpreterName: interpreter, transcriber, clock, send, soundingId, context: req.context })
       liveClock = clock

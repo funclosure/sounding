@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { isLang } from './langs'
+import { isScript, type ChineseScript } from './script-pref'
 import { apiAllowed } from '../cli/env'
 import { SUBSCRIPTION_MODEL } from '../providers/claude-subscription'
 import { DEFAULT_WHISPER_MODEL } from './whisper-server'
@@ -15,6 +16,8 @@ export interface Setup {
   /** The model behind the interpreter and the wrap, when it runs on the Claude login. */
   thinksModel: string | null
   lang: string
+  /** The characters Chinese is written in when the listening language is not Chinese itself. */
+  script: ChineseScript
   /** Whether paid API providers may be started at all. */
   api: boolean
   ownInstructions: boolean
@@ -40,7 +43,19 @@ export function saveLang(code: string, dir = 'soundings'): void {
   writeFileSync(join(dir, LANG_FILE), code)
 }
 
-export function describeSetup(args: { interpreter: string; transcriber: string; lang: string }, wrap: { prompt: string; isDefault: boolean }, env: Record<string, string | undefined> = process.env): Setup {
+const SCRIPT_FILE = 'script.txt'
+/** The characters chosen from the page for Chinese, or null when none were (Chinese is then left as heard). */
+export function readScript(dir = 'soundings'): ChineseScript | null {
+  const file = join(dir, SCRIPT_FILE)
+  const saved = existsSync(file) ? readFileSync(file, 'utf8').trim() : ''
+  return isScript(saved) ? saved : null
+}
+export function saveScript(script: ChineseScript, dir = 'soundings'): void {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, SCRIPT_FILE), script)
+}
+
+export function describeSetup(args: { interpreter: string; transcriber: string; lang: string; script?: ChineseScript }, wrap: { prompt: string; isDefault: boolean }, env: Record<string, string | undefined> = process.env): Setup {
   const whisper = basename(env.SOUNDING_WHISPER_MODEL ?? DEFAULT_WHISPER_MODEL).replace(/^ggml-/, '').replace(/\.bin$/, '')
   return {
     transcriber: args.transcriber,
@@ -48,6 +63,7 @@ export function describeSetup(args: { interpreter: string; transcriber: string; 
     interpreter: args.interpreter,
     thinksModel: args.interpreter === 'claude-sub' ? SUBSCRIPTION_MODEL : null,
     lang: args.lang,
+    script: args.script ?? 'heard',
     api: apiAllowed(env),
     ownInstructions: !wrap.isDefault,
     instructions: wrap.prompt,

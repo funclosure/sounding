@@ -386,8 +386,8 @@ describe('a whole sounding inside the page', () => {
 
 describe('the setup sheet, on the listener\'s own keys', () => {
   it('says whose key pays and where the sound and the words go', () => {
-    const rows = setupLines({ transcriber: 'elevenlabs', hearsModel: null, interpreter: 'claude', thinksModel: 'claude-haiku-5-5', lang: 'auto', api: true, ownInstructions: false, instructions: '', own: { keys: true, claudeHint: 'sk-ant…ab12', elevenHint: 'sk_123…cdef' } })
-    expect(rows.map((r) => r[2])).toEqual(['keys', undefined, 'model', 'instructions', 'lang', undefined])
+    const rows = setupLines({ transcriber: 'elevenlabs', hearsModel: null, interpreter: 'claude', thinksModel: 'claude-haiku-5-5', lang: 'auto', script: 'heard', api: true, ownInstructions: false, instructions: '', own: { keys: true, claudeHint: 'sk-ant…ab12', elevenHint: 'sk_123…cdef' } })
+    expect(rows.map((r) => r[2])).toEqual(['keys', undefined, 'model', 'instructions', 'lang', 'script', undefined])
     expect(rows[0][1]).toBe('In this browser only. Claude sk-ant…ab12, ElevenLabs sk_123…cdef.')
     expect(rows[1][1]).toBe('ElevenLabs, on your key. Your sound goes to them.')
     expect(rows[2][1]).toBe('Claude (Haiku 5.5), on your key. The words heard go to Anthropic.')

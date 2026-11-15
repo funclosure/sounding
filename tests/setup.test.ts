@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { AddressInfo } from 'node:net'
 import WebSocket, { WebSocketServer } from 'ws'
-import { readLang, saveLang } from '../src/live/setup'
+import { readLang, saveLang, readScript, saveScript } from '../src/live/setup'
 import { isLang, langName } from '../src/live/langs'
 import { handleLiveConnection, parseArgs } from '../src/live/server'
 import { readWrapPrompt } from '../src/live/wrap'
@@ -25,18 +25,18 @@ describe('describeSetup', () => {
 
 describe('setupLines', () => {
   it('says in plain words what listens, what understands and that nothing is spent', () => {
-    const lines = Object.fromEntries(setupLines({ transcriber: 'whisper', hearsModel: 'large-v3-turbo', interpreter: 'claude-sub', thinksModel: 'claude-sonnet-5-5', lang: 'en-US', api: false, ownInstructions: true, instructions: 'x' }))
+    const lines = Object.fromEntries(setupLines({ transcriber: 'whisper', hearsModel: 'large-v3-turbo', interpreter: 'claude-sub', thinksModel: 'claude-sonnet-5-5', lang: 'en-US', script: 'heard', api: false, ownInstructions: true, instructions: 'x' }))
     expect(lines['hears with']).toMatch(/Whisper \(large-v3-turbo\), on the machine itself/)
     expect(lines['understands with']).toBe('Claude (claude-sonnet-5-5), on your subscription.')
     expect(lines['the wrap']).toMatch(/your own instructions/)
     expect(lines['paid API']).toMatch(/^Off/)
   })
   it('marks paid providers as paid and the model-free baseline as having no wrap', () => {
-    const paid = Object.fromEntries(setupLines({ transcriber: 'gemini', hearsModel: null, interpreter: 'claude', thinksModel: null, lang: 'en-US', api: true, ownInstructions: false, instructions: 'x' }))
+    const paid = Object.fromEntries(setupLines({ transcriber: 'gemini', hearsModel: null, interpreter: 'claude', thinksModel: null, lang: 'en-US', script: 'heard', api: true, ownInstructions: false, instructions: 'x' }))
     expect(paid['hears with']).toMatch(/paid API/)
     expect(paid['understands with']).toMatch(/paid API/)
     expect(paid['paid API']).toMatch(/^Allowed/)
-    const base = Object.fromEntries(setupLines({ transcriber: 'whisper', hearsModel: null, interpreter: 'recurrence', thinksModel: null, lang: 'en-US', api: false, ownInstructions: false, instructions: 'x' }))
+    const base = Object.fromEntries(setupLines({ transcriber: 'whisper', hearsModel: null, interpreter: 'recurrence', thinksModel: null, lang: 'en-US', script: 'heard', api: false, ownInstructions: false, instructions: 'x' }))
     expect(base['the wrap']).toMatch(/Not written/)
   })
 })
@@ -81,5 +81,31 @@ describe('the setup sheet over the live socket', () => {
     expect(existsSync(join(dir, 'lang.txt'))).toBe(true)
     ws.close()
     await new Promise<void>((r) => wss.close(() => r()))
+  })
+})
+
+describe('the characters for Chinese, on the mini', () => {
+  it('are kept beside the soundings, and as heard until chosen', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sounding-script-'))
+    expect(readScript(dir)).toBeNull()
+    saveScript('traditional', dir)
+    expect(readScript(dir)).toBe('traditional')
+    expect(describeSetup({ interpreter: 'claude-sub', transcriber: 'whisper', lang: 'en-US', script: readScript(dir)! }, { prompt: 'p', isDefault: true }, {}).script).toBe('traditional')
+    expect(describeSetup({ interpreter: 'claude-sub', transcriber: 'whisper', lang: 'en-US' }, { prompt: 'p', isDefault: true }, {}).script).toBe('heard')
+  })
+  it('are chosen from the sheet over the page\'s socket', async () => {
+    const { liveConnection } = await import('../src/live/connection')
+    let saved = ''
+    const got: Array<{ type: string; setup?: { script: string } }> = []
+    const host = {
+      lang: () => 'en-US', saveLang: () => {}, script: () => (saved || 'heard') as 'heard', saveScript: (s: string) => { saved = s },
+      wrapPrompt: () => ({ prompt: 'p', isDefault: true }), saveWrapPrompt: () => {},
+      setup: () => describeSetup({ interpreter: 'claude-sub', transcriber: 'whisper', lang: 'en-US', script: (saved || 'heard') as 'heard' }, { prompt: 'p', isDefault: true }, {}),
+    } as unknown as Parameters<typeof liveConnection>[1]
+    const conn = liveConnection((m) => got.push(m as never), host)
+    await conn.text(JSON.stringify({ type: 'script', script: 'traditional' }))
+    await conn.text(JSON.stringify({ type: 'script', script: 'cursive' }))
+    expect(saved).toBe('traditional')
+    expect(got.filter((m) => m.type === 'live.setup').map((m) => m.setup?.script)).toEqual(['traditional', 'traditional'])
   })
 })

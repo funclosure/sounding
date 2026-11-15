@@ -8,6 +8,7 @@ import type { SoundingEngine, LiveMessage } from './engine'
 import type { EarlierItem } from './earlier-core'
 import { isEarlierName } from './earlier-core'
 import { isLang } from './langs'
+import { isScript, type ChineseScript } from './script-pref'
 import type { Setup } from './setup'
 import { spokenLanguage, validWrapPrompt, wrapMaterial, WRAP_PROMPT_MAX_CHARS, type WrapMaterial, type WrapWriter } from './wrap-core'
 
@@ -36,6 +37,9 @@ export interface LiveHost {
   /** The language to listen for, as chosen from the page or else the host's own default. */
   lang(): Awaitable<string>
   saveLang(code: string): Awaitable<void>
+  /** The characters Chinese is written in when the listening language is not Chinese itself. */
+  script(): Awaitable<ChineseScript>
+  saveScript(script: ChineseScript): Awaitable<void>
   wrapPrompt(): Awaitable<{ prompt: string; isDefault: boolean }>
   saveWrapPrompt(text: string): Awaitable<void>
   setup(): Awaitable<Setup>
@@ -133,7 +137,7 @@ export function liveConnection(send: (m: LiveMessage) => void, host: LiveHost): 
     try { await stopping } finally { stopping = null }
   }
   const text = async (data: string) => {
-    let msg: { type?: string; name?: unknown; interpreter?: string; transcriber?: unknown; label?: unknown; context?: unknown; text?: unknown; conceptId?: unknown; lang?: unknown }
+    let msg: { type?: string; name?: unknown; interpreter?: string; transcriber?: unknown; label?: unknown; context?: unknown; text?: unknown; conceptId?: unknown; lang?: unknown; script?: unknown }
     try { msg = JSON.parse(data) } catch { return }
     if (msg.type === 'start' && !live && !starting) {
       let context: string | undefined
@@ -180,6 +184,10 @@ export function liveConnection(send: (m: LiveMessage) => void, host: LiveHost): 
     } else if (msg.type === 'lang') {
       // The language to listen for, from the next sounding on.
       if (isLang(msg.lang)) await host.saveLang(msg.lang)
+      await sendSetup()
+    } else if (msg.type === 'script') {
+      // The characters for Chinese, from the next sounding on.
+      if (isScript(msg.script)) await host.saveScript(msg.script)
       await sendSetup()
     } else if (msg.type === 'earlier') {
       send({ type: 'live.earlier', items: await host.listEarlier() })

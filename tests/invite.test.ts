@@ -153,7 +153,7 @@ describe('a sounding on an invite', () => {
 
 describe('the settings sheet on an invite', () => {
   it('says whose accounts hear and think, and how much is left', () => {
-    const s: Setup = { transcriber: 'elevenlabs', hearsModel: null, interpreter: 'claude', thinksModel: 'claude-sonnet-5-5', lang: 'auto', api: true, ownInstructions: false, instructions: '',
+    const s: Setup = { transcriber: 'elevenlabs', hearsModel: null, interpreter: 'claude', thinksModel: 'claude-sonnet-5-5', lang: 'auto', script: 'heard', api: true, ownInstructions: false, instructions: '',
       own: { keys: false, claudeHint: '', elevenHint: '', invite: { from: 'Victor', minutes: 60, minutesLeft: 42, expiresAt: Date.UTC(2026, 10, 22), state: 'ok' } } }
     const rows = setupLines(s)
     expect(rows[0][1]).toMatch(/^From Victor: 42 of 60 minutes left, until/)
