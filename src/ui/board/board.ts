@@ -1,4 +1,4 @@
-import { SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, BESIDE_MIN_W } from './layout'
+import { SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, fitFontPx, BESIDE_MIN_W } from './layout'
 
 /** Where the gathered words ended up, for the reading to take its place: under them (`bottom`), or beside them (`left`, `width`). */
 export type Column = { bottom: number } | { left: number; width: number }
@@ -87,9 +87,14 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
 
     const placed: Placed[] = []
     for (const [id, el] of live) {
-      // Measured *after* font-size/weight are set for this apply, and with
-      // the element's transform scale at its steady-state 1 — see place().
-      const rect = el.getBoundingClientRect()
+      // The size the mark's prominence asks for, fitted to this field's width: a long label on a phone is drawn
+      // smaller rather than run past the screen's edge. Sizes are worked out from the width now, not measured at
+      // the new size, since the font size may be mid-transition (and offsetWidth leaves out the arrival's scale).
+      const nowPx = parseFloat(getComputedStyle(el).fontSize) || 17
+      const want = Number(el.dataset.want) || nowPx
+      const px = fitFontPx(want, (el.offsetWidth * want) / nowPx, w, WALL_PAD)
+      if (el.style.fontSize !== `${px}px`) el.style.fontSize = `${px}px`
+      const rect = { width: (el.offsetWidth * px) / nowPx, height: (el.offsetHeight * px) / nowPx }
       const halfH = rect.height / 2
       // `layout.position`'s wall clamp (clampX) and `separate`'s own wall
       // clamp must agree on the same half-width, or a mark that `position`
@@ -337,7 +342,8 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
         setTimeout(() => arriving.classList.remove('arrive'), ARRIVE_MS)
       }
 
-      el.style.fontSize = `${size}px`
+      // the size prominence asks for; settleAll draws it at that size or, where the field is too narrow, smaller
+      el.dataset.want = String(size)
       // One weight throughout: size and ink strength carry prominence.
       el.style.opacity = String(0.5 + Math.min(0.5, m.p))
       el.style.zIndex = String(Math.round(m.p * 100))
@@ -393,6 +399,9 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
   function onTap(cb: (id: string) => void) {
     tapCbs.push(cb)
   }
+
+  // Labels measured before the serif face arrived were measured in a narrower stand-in: once it is in, fit and place them again.
+  document.fonts?.addEventListener?.('loadingdone', () => { if (live.size) relayout() })
 
   return { apply, seedGhosts, clearGhosts, setLit, reset, relayout, gather, release, onTap }
 }

@@ -12,6 +12,19 @@ function clampX(x: number, halfW: number, w: number): number {
   return Math.max(half + 10, Math.min(w - half - 10, x))
 }
 
+/**
+ * The size a mark's label is drawn at on the open board: the size its
+ * prominence asks for, made smaller when the label at that size would be wider
+ * than the field allows (a long label on a phone), never below `min`. The field
+ * allows what `clampX` can hold clear of both walls: 0.9 of the width, less the
+ * walls' padding. `widthAtWant` is the label's width at `want` px.
+ */
+export function fitFontPx(want: number, widthAtWant: number, w: number, pad = 8, min = 13): number {
+  const room = Math.min(w * 0.9, w - 2 * (pad + 10))
+  if (widthAtWant <= room || widthAtWant <= 0) return want
+  return Math.max(min, Math.floor((want * room) / widthAtWant))
+}
+
 /** Clamp `y` so a box stays clear of the field's top/bottom walls. */
 function clampY(y: number, h: number): number {
   return Math.max(28, Math.min(h - 28, y))

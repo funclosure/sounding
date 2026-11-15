@@ -817,6 +817,7 @@ type Pane = 'rows' | 'instructions' | 'lang' | 'model' | 'needs' | 'key-claude' 
 let setupPane: Pane = 'rows'
 // The own-keys build only.
 let keyFlow: 'first' | 'change' = 'first' // a first setup walks both steps; changing one key comes back to the keys
+let keyReplacing = false // a step whose key is already kept shows it as done, until the listener asks to replace it
 let keyTyped = '' // what is in the box of the step on screen; kept across redraws of the sheet
 let keyCheck: { which: KeyWhich; said: KeyCheck | 'asking' } | null = null
 let keyAsk = 0 // the newest question to a provider; an older answer arriving late is dropped
@@ -851,21 +852,26 @@ const KEY_LINKS: Record<KeyWhich, string> = {
   eleven: '<a href="https://elevenlabs.io/app/developers/api-keys" target="_blank" rel="noopener">elevenlabs.io</a>',
 }
 const stepWhich = (): KeyWhich => (setupPane === 'key-claude' ? 'claude' : 'eleven')
-const pips = (at: number) => `<span class="pips" aria-hidden="true">${[0, 1, 2, 3].map((i) => `<i${i <= at ? ' class="on"' : ''}></i>`).join('')}</span>`
-const keyHead = (text: string, at?: number) => `<p class="wl kh"><span>${text}</span>${at === undefined ? '' : pips(at)}</p>`
+const keyHead = (text: string) => `<p class="wl">${text}</p>`
+/** A step whose key is already kept, and nothing typed over it: shown as done, with no box to fill. */
+const keyDone = (which: KeyWhich) => !keyReplacing && !keyTyped && keyCheck === null && !!OWN?.hints()[which]
 /** The line under a step's box and the step's buttons: redrawn on their own while the listener types. */
 function keyStepBits(which: KeyWhich): { line: string; tone: string; acts: string } {
   const saved = OWN?.hints()[which] ?? ''
   const c = keyCheck?.which === which ? keyCheck.said : null
-  const { text, tone } = c ? keyLine(which, c) : saved ? { text: w('keys.kept', { hint: saved }), tone: 'ok' } : { text: '', tone: '' }
+  const { text, tone } = c ? keyLine(which, c) : !saved ? { text: '', tone: '' }
+    : keyReplacing ? { text: w('keys.replacing', { hint: saved }), tone: '' } : { text: w('keys.kept', { hint: saved }), tone: 'ok' }
   // On to the next step with a key that works, or could not be asked about; not with one refused, or on an account with no credit.
   const can = c === null ? !!saved : c === 'ok' || c === 'unreachable'
   const label = which === 'claude' && keyFlow === 'first' ? w('keys.toEleven') : w('keys.done')
   const back = which === 'claude' ? (keyFlow === 'first' ? 'needs' : 'keys') : keyFlow === 'first' ? 'key-claude' : 'keys'
   const again = (c === 'nocredit' || c === 'unreachable') && keyTyped ? setupAct('again', w('keys.again'), true) : ''
-  return { line: text, tone, acts: `<button type="submit" class="act"${can ? '' : ' disabled'}>${label}</button>${again}${setupAct(back, w('back'), true)}` }
+  const replace = keyDone(which) ? setupAct('replace', w('keys.replace'), true) : ''
+  return { line: text, tone, acts: `<button type="submit" class="act go"${can ? '' : ' disabled'}>${label}</button>${again}${replace}${setupAct(back, w('back'), true)}` }
 }
 function setupAct(name: string, label: string, quiet = false) { return `<button type="button" class="act${quiet ? ' quiet' : ''}" data-act="${name}">${label}</button>` }
+/** The one thing a sheet asks for next: a real button, wide on a phone. */
+const goAct = (name: string, label: string) => `<button type="button" class="act go" data-act="${name}">${label}</button>`
 function paintKeyStep() {
   if (setupPane !== 'key-claude' && setupPane !== 'key-eleven') return
   const bits = keyStepBits(stepWhich())
@@ -900,6 +906,7 @@ function goKeyPane(pane: Pane) {
   setupPane = pane
   keyTyped = ''
   keyCheck = null
+  keyReplacing = false
   keyAsk++
   clearTimeout(keyTimer)
   if (pane !== 'keys') hideCarry()
@@ -940,20 +947,27 @@ function renderSetup() {
   }
   if (OWN && setupPane === 'needs') {
     const row = (k: 'costs' | 'sound' | 'words' | 'where') => `<dt>${w(`keys.${k}`)}</dt><dd>${w(`keys.${k}Say`)}</dd>`
-    setupEl.innerHTML = `${keyHead(w('keys.needs'), 0)}<p class="say">${w('keys.needsSay')}</p>
+    setupEl.innerHTML = `${keyHead(w('keys.needs'))}<p class="say">${w('keys.needsSay')}</p>
       <dl class="rows">${row('costs')}${row('sound')}${row('words')}${row('where')}</dl>
       ${coarse.matches ? `<p class="say quiet">${w('keys.phone')}</p>` : ''}
-      <div class="acts">${act('key-claude', w('keys.start'))}${act('close', w('keys.notNow'), true)}</div>`
+      <div class="acts">${goAct('key-claude', w('keys.start'))}${act('close', w('keys.notNow'), true)}</div>`
     return
   }
   if (OWN && (setupPane === 'key-claude' || setupPane === 'key-eleven')) {
     const which = stepWhich()
     const focused = document.activeElement?.id === 'key-in'
-    const how = ([1, 2, 3] as const).map((i) => `<li><span>${w(`keys.${which}How${i}`, { link: KEY_LINKS[which] })}</span></li>`).join('')
+    const title = keyFlow === 'first' ? w(which === 'claude' ? 'keys.stepClaude' : 'keys.stepEleven') : w(which === 'claude' ? 'keys.claudeLabel' : 'keys.elevenLabel')
     const bits = keyStepBits(which)
-    setupEl.innerHTML = `<form>${keyHead(w(which === 'claude' ? 'keys.stepClaude' : 'keys.stepEleven'), which === 'claude' ? 1 : 2)}<ol class="how">${how}</ol>
+    if (keyDone(which)) {
+      setupEl.innerHTML = `<form>${keyHead(title)}<p class="check ok kept" role="status">${escapeHtml(bits.line)}</p><div class="acts">${bits.acts}</div></form>`
+      return
+    }
+    const how = ([1, 2, 3] as const).map((i) => `<li><span>${w(`keys.${which}How${i}`, { link: KEY_LINKS[which] })}</span></li>`).join('')
+    // A phone's paste is a long press on a small box: the button beside it does the same in one tap.
+    const paste = typeof navigator.clipboard?.readText === 'function' ? `<button type="button" class="paste" data-act="paste">${w('keys.paste')}</button>` : ''
+    setupEl.innerHTML = `<form>${keyHead(title)}${keyReplacing ? '' : `<ol class="how">${how}</ol>`}
       <label class="kl" for="key-in">${w(which === 'claude' ? 'keys.claudeLabel' : 'keys.elevenLabel')}</label>
-      <input id="key-in" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${which === 'claude' ? 'sk-ant-…' : 'sk_…'}">
+      <div class="keyrow"><input id="key-in" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${which === 'claude' ? 'sk-ant-…' : 'sk_…'}">${paste}</div>
       <p class="check ${bits.tone}" role="status">${escapeHtml(bits.line)}</p>
       <div class="acts">${bits.acts}</div></form>`
     const input = setupEl.querySelector<HTMLInputElement>('#key-in')!
@@ -964,12 +978,12 @@ function renderSetup() {
   if (OWN && setupPane === 'keys') {
     const h = OWN.hints()
     const code = carryShown ? OWN.carryCode() : null
-    setupEl.innerHTML = `${keyHead(w(justSetUp ? 'keys.ready' : 'keys.title'), justSetUp ? 3 : undefined)}
+    setupEl.innerHTML = `${keyHead(w(justSetUp ? 'keys.ready' : 'keys.title'))}
       ${justSetUp ? `<p class="say">${w('keys.readySay')}</p>` : ''}
       <dl class="rows"><dt>Claude</dt><dd>${escapeHtml(h.claude)}</dd><dt>ElevenLabs</dt><dd>${escapeHtml(h.eleven)}</dd></dl>
       ${justSetUp ? `<p class="say quiet">${w('keys.later')}</p>` : ''}
       ${code ? `<div class="carry"><canvas id="carry-code" role="img" aria-label="${w('keys.carry')}"></canvas><p class="note">${w('keys.carryNote')}</p></div>` : ''}
-      <div class="acts">${act('carry', w(code ? 'keys.carryHide' : 'keys.carry'))}${act('change-claude', w('keys.changeClaude'), true)}${act('change-eleven', w('keys.changeEleven'), true)}${act('forget', w('keys.forget'), true)}${act(justSetUp ? 'close' : 'back', w(justSetUp ? 'close' : 'back'), true)}</div>`
+      <div class="acts">${justSetUp ? goAct('close', w('keys.done')) : ''}${act('carry', w(code ? 'keys.carryHide' : 'keys.carry'), justSetUp)}${act('change-claude', w('keys.changeClaude'), true)}${act('change-eleven', w('keys.changeEleven'), true)}${act('forget', w('keys.forget'), true)}${justSetUp ? '' : act('back', w('back'), true)}</div>`
     if (code) drawCarry(code)
     return
   }
@@ -977,7 +991,7 @@ function renderSetup() {
     const failed = carriedSaid ? (['claude', 'eleven'] as const).filter((k) => carriedSaid && !keepable(carriedSaid[k])) : []
     const said = carriedBusy ? `<p class="check wait" role="status">${w('keys.carriedChecking')}</p>`
       : failed.map((k) => { const l = keyLine(k, carriedSaid![k]); return `<p class="check ${l.tone}" role="status">${escapeHtml(l.text)}</p>` }).join('')
-    const acts = carriedSaid ? act('close', w('close'), true) : `${act('carried-use', w('keys.carriedUse'))}${act('carried-no', w('keys.carriedNo'), true)}`
+    const acts = carriedSaid ? act('close', w('close'), true) : `${goAct('carried-use', w('keys.carriedUse'))}${act('carried-no', w('keys.carriedNo'), true)}`
     setupEl.innerHTML = `${keyHead(w('keys.carried'))}<p class="say">${w('keys.carriedSay', { claude: escapeHtml(carriedHints.claude), eleven: escapeHtml(carriedHints.eleven) })}</p>
       <p class="say quiet">${w('keys.carriedWarn')}${OWN.hasKeys() ? ` ${w('keys.carriedReplace')}` : ''}</p>${said}
       <div class="acts">${carriedBusy ? '' : acts}</div>`
@@ -1011,7 +1025,13 @@ setupEl.addEventListener('click', (e) => {
   else if (act === 'keys' && OWN) { justSetUp = false; keyFlow = OWN.hasKeys() ? 'change' : 'first'; goKeyPane(OWN.hasKeys() ? 'keys' : 'needs') }
   else if (act === 'needs') goKeyPane('needs')
   else if (act === 'key-claude') goKeyPane('key-claude')
-  else if (act === 'change-claude' || act === 'change-eleven') { keyFlow = 'change'; goKeyPane(act === 'change-claude' ? 'key-claude' : 'key-eleven') }
+  else if (act === 'change-claude' || act === 'change-eleven') { keyFlow = 'change'; goKeyPane(act === 'change-claude' ? 'key-claude' : 'key-eleven'); keyReplacing = true }
+  else if (act === 'replace') keyReplacing = true
+  else if (act === 'paste') {
+    const input = setupEl.querySelector<HTMLInputElement>('#key-in')
+    navigator.clipboard.readText().then((t) => { if (input) { input.value = t.trim(); onKeyTyped(input.value) } }, () => input?.focus())
+    return
+  }
   else if (act === 'again' && OWN) { if (keyTyped) void askKey(stepWhich(), keyTyped); return }
   else if (act === 'carry') {
     carryShown = !carryShown
@@ -1028,7 +1048,7 @@ setupEl.addEventListener('click', (e) => {
   else if (act === 'key-eleven' || act === 'rows') goKeyPane(act === 'rows' ? 'rows' : 'key-eleven')
   renderSetup()
   if (act === 'instructions') setupEl.querySelector('textarea')?.focus()
-  if (act === 'key-claude' || act === 'change-claude' || act === 'change-eleven' || act === 'key-eleven') setupEl.querySelector('input')?.focus()
+  if (act === 'key-claude' || act === 'change-claude' || act === 'change-eleven' || act === 'key-eleven' || act === 'replace') setupEl.querySelector('input')?.focus()
 })
 setupEl.addEventListener('input', (e) => { if ((e.target as HTMLElement).id === 'key-in') onKeyTyped((e.target as HTMLInputElement).value) })
 /** The own-keys build: a step's key is in and works, so on to the next step, or back to the keys. */
