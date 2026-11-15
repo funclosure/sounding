@@ -4,6 +4,7 @@
 // this device keeps once it has been signed in from `bun run invite admin-link`.
 import { carryCode as qrModules } from '../own/keys'
 import type { InviteAdminView } from '../relay/relay'
+import { removable } from '../relay/invite-state'
 import { inviteLine, keyIn, monthLine, stateWord } from './view'
 
 const STORE = 'sounding.admin.key'
@@ -20,9 +21,9 @@ function kept(key: string): string { try { return localStorage.getItem(key) ?? '
 if (arrived) keep(arrived)
 
 class Refused extends Error {}
-async function call<T>(path: string, body?: unknown): Promise<T> {
+async function call<T>(path: string, body?: unknown, method?: string): Promise<T> {
   const res = await fetch(`/api/admin${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
+    method: method ?? (body === undefined ? 'GET' : 'POST'),
     headers: { authorization: `Bearer ${secret()}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
@@ -38,7 +39,7 @@ function show(signedIn: boolean) {
 }
 
 let invites: InviteAdminView[] = []
-let sure = '' // an action waiting for its second tap: "<id>:revoke" or "<id>:release"
+let sure = '' // an action waiting for its second tap: "<id>:revoke", "<id>:release" or "<id>:remove"
 
 async function load() {
   try {
@@ -62,7 +63,7 @@ function button(label: string, act: string, id: string, quiet = true): HTMLButto
   b.className = `act${quiet ? ' quiet' : ''}${sure === `${id}:${act}` ? ' sure' : ''}`
   b.dataset.act = act
   b.dataset.id = id
-  b.textContent = sure === `${id}:${act}` ? (act === 'revoke' ? 'tap again to withdraw' : 'tap again: the old device loses it') : label
+  b.textContent = sure === `${id}:${act}` ? (act === 'revoke' ? 'tap again to withdraw' : act === 'remove' ? 'tap again to remove' : 'tap again: the old device loses it') : label
   return b
 }
 
@@ -81,7 +82,8 @@ function render() {
     acts.append(button('+7 days', 'days', v.id, false), button('+30 min', 'minutes', v.id, false))
     if (v.state === 'revoked') acts.append(button('restore', 'restore', v.id))
     else acts.append(button('withdraw', 'revoke', v.id))
-    if (v.claimed) acts.append(button('release', 'release', v.id))
+    if (v.claimed && v.state !== 'revoked') acts.append(button('release', 'release', v.id))
+    if (removable(v.state)) acts.append(button('remove', 'remove', v.id))
     li.append(top, line, acts)
     rows.append(li)
   }
@@ -91,9 +93,15 @@ $('rows').addEventListener('click', async (e) => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]')
   if (!b) return
   const { act, id } = b.dataset as { act: string; id: string }
-  // withdrawing and releasing ask twice
-  if ((act === 'revoke' || act === 'release') && sure !== `${id}:${act}`) { sure = `${id}:${act}`; return render() }
+  // withdrawing, releasing and removing ask twice
+  if ((act === 'revoke' || act === 'release' || act === 'remove') && sure !== `${id}:${act}`) { sure = `${id}:${act}`; return render() }
   sure = ''
+  if (act === 'remove') {
+    b.disabled = true
+    try { await call(`/invites/${id}`, undefined, 'DELETE'); invites = invites.filter((v) => v.id !== id); said.textContent = ''; render() }
+    catch (err) { said.textContent = (err as Error).message; b.disabled = false }
+    return
+  }
   const body = act === 'days' ? { addDays: 7 } : act === 'minutes' ? { addMinutes: 30 } : { [act]: true }
   b.disabled = true
   try {

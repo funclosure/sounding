@@ -196,3 +196,23 @@ describe('the page\'s own requests', () => {
     for (const b of sent) expect(typeof friendRequest(b)).toBe('object')
   })
 })
+
+describe('removing invites', () => {
+  it('takes away only invites that can no longer be used, and keeps the month\'s spend', async () => {
+    const r = relay()
+    const open = await r.invite({ name: 'Open' })
+    const done = await r.invite({ name: 'Done' })
+    const { device } = await r.accept(done.token)
+    await r.call('/api/claude', { body: marksBody(), auth: device })
+    const remove = (id: string) => r.call(`/api/admin/invites/${id}`, { method: 'DELETE', auth: ADMIN })
+    expect((await remove(open.invite.id)).status).toBe(409)
+    await r.call(`/api/admin/invites/${done.invite.id}`, { body: { revoke: true }, auth: ADMIN })
+    expect(await (await remove(done.invite.id)).json()).toEqual({ removed: done.invite.id })
+    expect((await remove(done.invite.id)).status).toBe(404)
+    expect((await r.call('/api/invite', { auth: device })).status).toBe(401)
+    const list = (await (await r.call('/api/admin/invites', { auth: ADMIN })).json()) as { invites: Array<{ name: string }>; month: { spentUsd: number } }
+    expect(list.invites.map((v) => v.name)).toEqual(['Open'])
+    expect(list.month.spentUsd).toBeGreaterThan(0)
+    expect((await r.call(`/api/admin/invites/${open.invite.id}`, { method: 'DELETE' })).status).toBe(401)
+  })
+})

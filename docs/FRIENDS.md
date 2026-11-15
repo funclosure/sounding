@@ -85,7 +85,10 @@ the site is not taking invitations.
 days, minutes) and hands its link over: copy, the phone's share sheet, or a
 code for a friend's camera when you are together. Each invite shows where it
 stands, its minutes and dollars, and buttons for +7 days, +30 minutes,
-withdraw / restore (withdrawing asks twice) and release.
+withdraw / restore and release. An invite that can no longer be used
+(withdrawn, expired or used up) can also be removed from the list; withdraw an
+open one first. Withdrawing, releasing and removing each ask twice, and
+removing keeps what the invite cost in the month's total.
 
 To sign a phone in, run this **in your own terminal** on the mini (it prints
 the admin secret inside a link, so keep it out of chats and Claude panes):
@@ -113,6 +116,7 @@ From the repo on the mini (Justy can run these for you):
     bun run invite extend <id> --days 7            # and/or --minutes 30
     bun run invite revoke <id>                     # and: restore <id>
     bun run invite release <id>                    # the same link works again, on a new device
+    bun run invite remove <id>                     # off the list: withdrawn, expired or used up only
 
 `new` prints the link once; only its hash is kept. The admin secret and the
 "from" name live in `~/.config/sounding/` on the mini, not in the repo.
