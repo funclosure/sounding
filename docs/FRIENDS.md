@@ -79,6 +79,32 @@ the site is not taking invitations.
 
 ## Making and managing invites
 
+### On your phone: the invites page
+
+`https://sounding-2j1.pages.dev/admin` makes an invite (for whom, from whom,
+days, minutes) and hands its link over: copy, the phone's share sheet, or a
+code for a friend's camera when you are together. Each invite shows where it
+stands, its minutes and dollars, and buttons for +7 days, +30 minutes,
+withdraw / restore (withdrawing asks twice) and release.
+
+To sign a phone in, run this **in your own terminal** on the mini (it prints
+the admin secret inside a link, so keep it out of chats and Claude panes):
+
+    bun run invite admin-link
+
+Scan the code it draws, or open the link on the phone. The page keeps the
+secret on that phone, takes it out of the address at once, and signs out from
+the button at the bottom. If the secret ever gets out, make a new one with
+`bun run invite setup --from "Your name" --new-secret` and put `ADMIN_SECRET`
+on the site again; every signed-in phone then has to sign in afresh.
+
+For a second lock, a Cloudflare Access application on
+`sounding-2j1.pages.dev/admin` (Zero Trust → Access → Applications,
+self-hosted, allow only your email) puts an email sign-in in front of the
+page. Nothing in the code depends on it.
+
+### From the mini
+
 From the repo on the mini (Justy can run these for you):
 
     bun run invite new "Amy"                       # 7 days, 60 minutes

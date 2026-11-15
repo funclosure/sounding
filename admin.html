@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Sounding — invites</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/src/admin/admin.css" />
+  </head>
+  <body>
+    <main id="admin">
+      <header>
+        <h1>invites</h1>
+        <p class="month" id="month"></p>
+      </header>
+      <section id="signin" hidden>
+        <p class="say">This page makes and manages invitations to Sounding. It needs this device signed in.</p>
+        <p class="say quiet">On the mini, run <code>bun run invite admin-link</code> in your own terminal and open the link it prints here, or scan its code.</p>
+        <form id="signin-form">
+          <label class="kl" for="secret">or paste the admin secret</label>
+          <div class="row"><input id="secret" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" /><button type="submit" class="act">sign in</button></div>
+        </form>
+        <p class="check" id="signin-said" role="status"></p>
+      </section>
+      <section id="make" hidden>
+        <h2>a new invite</h2>
+        <form id="new-form">
+          <label class="kl" for="name">for</label>
+          <input id="name" maxlength="60" autocomplete="off" placeholder="a friend’s name" required />
+          <label class="kl" for="from">from</label>
+          <input id="from" maxlength="40" autocomplete="off" placeholder="your name, as the invite will say it" required />
+          <div class="pair">
+            <div><label class="kl" for="days">days</label><input id="days" type="number" inputmode="numeric" min="1" max="366" value="7" /></div>
+            <div><label class="kl" for="minutes">minutes of talk</label><input id="minutes" type="number" inputmode="numeric" min="1" max="6000" value="60" /></div>
+          </div>
+          <button type="submit" class="act go" id="make-btn">make the link</button>
+        </form>
+        <div id="made" hidden>
+          <p class="say">The link for <b id="made-name"></b>. It is shown only now, and works on the first device that opens it.</p>
+          <p class="link" id="made-link"></p>
+          <div class="acts" id="made-acts"></div>
+          <div class="code" id="made-code" hidden><canvas id="made-canvas" role="img" aria-label="the invite link as a code"></canvas><p class="quiet">Their phone’s camera opens it.</p></div>
+        </div>
+      </section>
+      <section id="list" hidden>
+        <h2>invites</h2>
+        <ul id="rows"></ul>
+        <p class="quiet" id="empty" hidden>No invites yet.</p>
+      </section>
+      <p class="check" id="said" role="status"></p>
+      <footer id="foot" hidden><button type="button" class="act quiet" id="forget">sign this device out</button></footer>
+    </main>
+    <script type="module" src="/src/admin/main.ts"></script>
+  </body>
+</html>

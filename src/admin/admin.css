@@ -1,0 +1,76 @@
+/* The invites page: the board's paper and ink (src/ui/board/board.css), without the board.
+   Light from the device's setting, no script; dark the same way. */
+@font-face {
+  font-family: 'Noto Serif';
+  font-style: normal;
+  font-weight: 400;
+  src: local('Noto Serif'), local('NotoSerif'), url('/fonts/noto-serif-v8-latin-regular.woff2') format('woff2');
+  font-display: swap;
+}
+:root {
+  color-scheme: light;
+  --serif: "Noto Serif", "Noto Serif TC", "Songti TC", Georgia, "Times New Roman", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --paper: #f4f2ec; --ink: #1b1813; --ink-quiet: #6a6358; --whisper: #aca498;
+  --light: #c9b68a; --line: #dbd6cc; --halo: color-mix(in srgb, var(--light), transparent 72%);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #16161b; --ink: #e9e4da; --ink-quiet: #8c867a; --whisper: #565462;
+    --light: #7884b0; --line: #28282f;
+  }
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); color: var(--ink); -webkit-text-size-adjust: 100%; }
+body { margin: 0; font-family: var(--serif); }
+main {
+  max-width: 34rem; margin: 0 auto; display: grid; gap: 28px;
+  padding-block: max(28px, env(safe-area-inset-top)) max(40px, env(safe-area-inset-bottom));
+  padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right));
+}
+[hidden] { display: none !important; }
+h1 { margin: 0; font-weight: 400; font-size: 28px; letter-spacing: 0.01em; }
+h2 { margin: 0 0 12px; font-family: var(--mono); font-weight: 400; font-size: 11.5px; letter-spacing: 0.05em; color: var(--ink-quiet); }
+header { display: grid; gap: 6px; }
+.month, .kl, code, .quiet, .line { font-family: var(--mono); }
+.month { margin: 0; font-size: 12px; letter-spacing: 0.03em; color: var(--ink-quiet); }
+.say { margin: 0 0 10px; font-size: 15.5px; line-height: 1.55; }
+.say.quiet, .quiet { font-size: 12px; letter-spacing: 0.02em; line-height: 1.6; color: var(--ink-quiet); }
+code { font-size: 12px; color: var(--ink); }
+.kl { display: block; font-size: 11.5px; letter-spacing: 0.03em; color: var(--ink-quiet); margin: 0 0 6px; }
+input {
+  display: block; width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 0 0 14px;
+  background: transparent; color: var(--ink); font-family: var(--mono); font-size: 16px; line-height: 1.4;
+}
+input:focus-visible { outline: none; border-color: var(--whisper); box-shadow: 0 0 0 3px var(--halo); }
+input::placeholder { color: var(--whisper); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row { display: flex; gap: 8px; align-items: stretch; }
+.row input { margin: 0; flex: 1; min-width: 0; }
+.act {
+  all: unset; cursor: pointer; font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.03em; color: var(--ink);
+  border-bottom: 1px solid var(--light); padding: 4px 0;
+}
+.act.quiet { color: var(--ink-quiet); border-bottom-color: transparent; }
+.act.go { display: block; text-align: center; padding: 13px 16px; border: 1px solid var(--ink-quiet); border-radius: 6px; width: 100%; box-sizing: border-box; }
+.act.sure { color: var(--ink); border-bottom-color: var(--ink); }
+.act:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--halo); border-radius: 4px; }
+.act[disabled] { opacity: 0.4; cursor: default; }
+.row .act { padding: 0 14px; border: 1px solid var(--line); border-radius: 6px; display: flex; align-items: center; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: baseline; }
+.link { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+.code { display: grid; gap: 8px; justify-items: start; margin-top: 14px; }
+.code canvas { width: 200px; height: 200px; image-rendering: pixelated; border-radius: 4px; }
+ul { list-style: none; margin: 0; padding: 0; }
+li { display: grid; gap: 6px; padding: 14px 0; border-top: 1px solid var(--line); }
+li .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+li .who { font-size: 17px; overflow-wrap: anywhere; min-width: 0; }
+li .state { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.03em; color: var(--ink-quiet); white-space: nowrap; }
+li .state.on { color: var(--ink); }
+li .line { font-size: 12px; letter-spacing: 0.02em; color: var(--ink-quiet); line-height: 1.6; }
+li .acts { margin-top: 2px; }
+.check { margin: 0; min-height: 1.4em; font-family: var(--serif); font-size: 14px; color: var(--ink); }
+.check:empty { display: none; }
+footer { padding-top: 8px; border-top: 1px solid var(--line); }
+#made { margin-top: 18px; }

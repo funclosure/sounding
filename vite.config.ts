@@ -37,7 +37,7 @@ export default defineConfig(({ mode }) => ({
     proxy: { [LIVE_SOCKET_PATH]: { target: `ws://127.0.0.1:${DEFAULT_LIVE_PORT}`, ws: true } },
   },
   build: mode === 'own'
-    ? { outDir: OWN_OUT, rollupOptions: { input: { live: resolve(__dirname, 'live.html') } } }
+    ? { outDir: OWN_OUT, rollupOptions: { input: { live: resolve(__dirname, 'live.html'), admin: resolve(__dirname, 'admin.html') } } }
     : {
         rollupOptions: {
           input: {
