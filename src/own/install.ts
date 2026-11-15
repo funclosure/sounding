@@ -13,4 +13,4 @@ const carried = takeCarried(location, history)
 const inviteToken = takeInvite(location, history)
 // A code's link opened in a tab already showing this page changes only the #: load again, so it is taken the same way.
 addEventListener('hashchange', () => { if (holdsKeys(location.hash) || /(^#|&)invite=/.test(location.hash)) location.reload() })
-installOwn(ownBridge({ prefs: new Prefs(localStorage), store: browserStore(), carried, inviteToken, siteUrl: () => `${location.origin}/` }))
+installOwn(ownBridge({ prefs: new Prefs(localStorage, navigator.language), store: browserStore(), carried, inviteToken, siteUrl: () => `${location.origin}/` }))

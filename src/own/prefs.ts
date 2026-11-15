@@ -7,10 +7,11 @@ import { isLang } from '../live/langs'
 import { isOwnModel, type OwnModel } from './claude'
 import { tidyKey, type Keys, type Which } from './keys'
 import type { InviteView } from '../relay/relay'
+import { isScript, scriptFromBrowser, type ChineseScript } from '../live/script-pref'
 
 export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
 
-const K = { claude: 'sounding.own.claude-key', eleven: 'sounding.own.eleven-key', model: 'sounding.own.model', prompt: 'sounding.own.wrap-prompt', lang: 'sounding.own.lang', invite: 'sounding.own.invite' }
+const K = { claude: 'sounding.own.claude-key', eleven: 'sounding.own.eleven-key', model: 'sounding.own.model', prompt: 'sounding.own.wrap-prompt', lang: 'sounding.own.lang', invite: 'sounding.own.invite', script: 'sounding.own.script' }
 
 /** An accepted invite: the device's secret for the relay, and the invite as last heard from it. */
 export interface KeptInvite { device: string; invite: InviteView }
@@ -18,8 +19,11 @@ export interface KeptInvite { device: string; invite: InviteView }
 export { tidyKey, keyHint, type Keys } from './keys'
 
 export class Prefs {
-  /** `kv` is localStorage in the page. It can throw (a private window): reads then come back empty and writes are dropped. */
-  constructor(private readonly kv: KV) {}
+  /**
+   * `kv` is localStorage in the page. It can throw (a private window): reads then come back empty and writes are dropped.
+   * `browserLang` (navigator.language) decides which characters Chinese is written in until the listener chooses.
+   */
+  constructor(private readonly kv: KV, private readonly browserLang = 'en') {}
   private get(k: string): string { try { return this.kv.getItem(k) ?? '' } catch { return '' } }
   private set(k: string, v: string): void { try { if (v) this.kv.setItem(k, v); else this.kv.removeItem(k) } catch { /* nothing kept this visit */ } }
 
@@ -38,6 +42,8 @@ export class Prefs {
   saveModel(m: OwnModel): void { this.set(K.model, m) }
 
   lang(): string { const l = this.get(K.lang); return isLang(l) ? l : 'auto' }
+  script(): ChineseScript { const s = this.get(K.script); return isScript(s) ? s : scriptFromBrowser(this.browserLang) }
+  saveScript(s: ChineseScript): void { this.set(K.script, s) }
   saveLang(code: string): void { this.set(K.lang, code) }
 
   wrapPrompt(): { prompt: string; isDefault: boolean } {

@@ -4,7 +4,7 @@ import { langName } from '../live/langs'
 import { w, isWord, currentTongue, type WordKey } from './words'
 
 /** Each row: its name, its line, and (for the two that can be changed here) what tapping it opens. */
-export type SetupPane = 'instructions' | 'lang' | 'keys' | 'model'
+export type SetupPane = 'instructions' | 'lang' | 'keys' | 'model' | 'script'
 export function setupLines(s: Setup): Array<[string, string, SetupPane?]> {
   const model = (m: string | null) => ({ model: m ? ` (${m})` : '' })
   // The own-keys build: every row says whose key pays and where the sound and the words go.
@@ -23,6 +23,7 @@ export function setupLines(s: Setup): Array<[string, string, SetupPane?]> {
         [w('setup.thinks'), w('setup.inviteThinks', { from, model: modelName }), 'model'],
         [w('setup.wrap'), w('setup.inviteWrap', { from }), 'instructions'],
         [w('setup.language'), s.lang === 'auto' ? w('lang.auto.name') : langName(s.lang), 'lang'],
+        [w('setup.script'), w(`script.${s.script}` as WordKey), 'script'],
         [w('setup.kept'), w('setup.ownKept')],
       ]
     }
@@ -32,6 +33,7 @@ export function setupLines(s: Setup): Array<[string, string, SetupPane?]> {
       [w('setup.thinks'), w('setup.ownThinks', { model: isWord(modelKey) ? w(modelKey) : (s.thinksModel ?? '') }), 'model'],
       [w('setup.wrap'), w(s.ownInstructions ? 'setup.ownWrapOwn' : 'setup.ownWrapDefault'), 'instructions'],
       [w('setup.language'), s.lang === 'auto' ? w('lang.auto.name') : langName(s.lang), 'lang'],
+        [w('setup.script'), w(`script.${s.script}` as WordKey), 'script'],
       [w('setup.kept'), w('setup.ownKept')],
     ]
   }
@@ -50,6 +52,7 @@ export function setupLines(s: Setup): Array<[string, string, SetupPane?]> {
     [w('setup.thinks'), thinks],
     [w('setup.wrap'), wrap, 'instructions'],
     [w('setup.language'), s.lang === 'auto' ? w('lang.auto.name') : langName(s.lang), 'lang'],
+        [w('setup.script'), w(`script.${s.script}` as WordKey), 'script'],
     [w('setup.api'), w(s.api ? 'setup.apiOn' : 'setup.apiOff')],
   ]
 }

@@ -47,7 +47,7 @@ describe('the page\'s own words', () => {
 
   it('the setup sheet speaks it too', () => {
     setTongue('ja')
-    const lines = Object.fromEntries(setupLines({ transcriber: 'whisper', hearsModel: 'large-v3-turbo', interpreter: 'claude-sub', thinksModel: 'claude-sonnet-5-5', lang: 'ja-JP', api: false, ownInstructions: false, instructions: 'x' }))
+    const lines = Object.fromEntries(setupLines({ transcriber: 'whisper', hearsModel: 'large-v3-turbo', interpreter: 'claude-sub', thinksModel: 'claude-sonnet-5-5', lang: 'ja-JP', script: 'heard', api: false, ownInstructions: false, instructions: 'x' }))
     expect(lines['聞き取り']).toContain('Whisper (large-v3-turbo)')
     expect(lines['言語']).toBe('日本語')
     expect(lines['有料 API']).toContain('オフ')

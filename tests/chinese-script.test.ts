@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { scriptFor } from '../src/live/chinese-script'
+import { scriptFor, chineseRewrite } from '../src/live/chinese-script'
+import { scriptFromBrowser, effectiveScript } from '../src/live/script-pref'
+import { Prefs } from '../src/own/prefs'
+import { chineseRewriteFor } from '../src/own/host'
 import { isLang, langName } from '../src/live/langs'
 import { whisperLanguage } from '../src/live/whisper-server'
 import { WhisperTranscriber } from '../src/live/whisper-transcriber'
@@ -48,5 +51,66 @@ describe('the two Chinese scripts', () => {
     await tr.end()
     expect(finals).toEqual(['這個問題', '這個問題'])
     expect(prompts.at(-1)).toBe('這個問題')
+  })
+})
+
+describe('Chinese heard while another language is listened for', () => {
+  it('follows the listener\'s choice of characters, and leaves other text alone', () => {
+    const t = chineseRewrite('traditional')!
+    expect(t('我们去吃东西吧')).toBe('我們去吃東西吧')
+    expect(t('we should rebuild the harbor wall')).toBe('we should rebuild the harbor wall')
+    expect(t('I said 吃东西 to her')).toBe('I said 吃東西 to her')
+    expect(chineseRewrite('simplified')!('我們去吃東西吧')).toBe('我们去吃东西吧')
+    expect(chineseRewrite('heard')).toBeUndefined()
+  })
+  it('leaves Japanese as it is, told apart by its kana', () => {
+    expect(chineseRewrite('traditional')!('東京の大学に行きます')).toBe('東京の大学に行きます')
+  })
+  it('lets a Chinese listening language decide, and the choice decide otherwise', () => {
+    expect(scriptFor('en-US', 'traditional')!('吃东西')).toBe('吃東西')
+    expect(scriptFor('auto', 'simplified')!('吃東西')).toBe('吃东西')
+    expect(scriptFor('zh-CN', 'traditional')!('吃東西')).toBe('吃东西')
+    expect(scriptFor('en-US')).toBeUndefined()
+  })
+})
+
+describe('the default characters', () => {
+  it('follow the browser\'s language', () => {
+    expect(['zh-TW', 'zh-Hant', 'zh-HK', 'zh-MO', 'zh-Hant-TW'].map(scriptFromBrowser)).toEqual(Array(5).fill('traditional'))
+    expect(['zh-CN', 'zh', 'zh-SG', 'zh-Hans'].map(scriptFromBrowser)).toEqual(Array(4).fill('simplified'))
+    expect(['en-US', 'ja-JP', ''].map(scriptFromBrowser)).toEqual(Array(3).fill('heard'))
+    expect(effectiveScript('zh-TW', 'simplified')).toBe('traditional')
+    expect(effectiveScript('en-US', 'simplified')).toBe('simplified')
+  })
+  it('are kept per browser on the hosted page, and changed from the sheet', async () => {
+    const m = new Map<string, string>()
+    const kv = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) }
+    const prefs = new Prefs(kv, 'zh-TW')
+    expect(prefs.script()).toBe('traditional')
+    prefs.saveScript('heard')
+    expect(new Prefs(kv, 'zh-TW').script()).toBe('heard')
+    expect(new Prefs(kv).script()).toBe('heard')
+    expect(new Prefs({ getItem: () => null, setItem: () => {}, removeItem: () => {} }).script()).toBe('heard')
+  })
+})
+
+describe('fetching the tables on the hosted page', () => {
+  it('waits for Chinese to be heard, then converts from the next text on', async () => {
+    let loads = 0
+    let ready!: () => void
+    const loaded = new Promise<void>((r) => { ready = r })
+    const load = async () => { loads++; await loaded; return import('../src/live/chinese-script') }
+    const rewrite = (await chineseRewriteFor('traditional', false, load))!
+    expect(rewrite('hello there')).toBe('hello there')
+    expect(loads).toBe(0)
+    expect(rewrite('吃东西')).toBe('吃东西') // heard before the tables are in: stays as heard
+    expect(rewrite('吃东西')).toBe('吃东西')
+    expect(loads).toBe(1)
+    ready()
+    await new Promise((r) => setTimeout(r, 0))
+    await new Promise((r) => setTimeout(r, 0))
+    expect(rewrite('吃东西')).toBe('吃東西')
+    expect(await chineseRewriteFor('heard', false, load)).toBeUndefined()
+    expect((await chineseRewriteFor('simplified', true))!('吃東西')).toBe('吃东西')
   })
 })

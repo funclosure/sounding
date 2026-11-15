@@ -779,7 +779,7 @@ function idleSocket(): Promise<PageSocket> {
   p.then(done, done)
   return p
 }
-function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; name: string } | { type: 'instructions'; text: string } | { type: 'lang'; lang: string }) {
+function tell(msg: { type: 'earlier' | 'setup' } | { type: 'open' | 'remove'; name: string } | { type: 'instructions'; text: string } | { type: 'lang'; lang: string } | { type: 'script'; script: string }) {
   idleSocket().then((s) => s.send(JSON.stringify(msg)), () => { earlierFailed = true; setupFailed = true; renderEarlier(); renderSetup() })
 }
 
@@ -813,7 +813,7 @@ let setupFailed = false
 // Two of its rows open: the wrap's instructions (an editor) and the language (a list).
 // The own-keys build adds the keys: first what they cost and where things go ('needs'), then one step per key,
 // then the two keys as kept ('keys'), and keys that came in this page's address from a carry code ('carried').
-type Pane = 'rows' | 'instructions' | 'lang' | 'model' | 'needs' | 'key-claude' | 'key-eleven' | 'keys' | 'carried' | 'invited'
+type Pane = 'rows' | 'instructions' | 'lang' | 'script' | 'model' | 'needs' | 'key-claude' | 'key-eleven' | 'keys' | 'carried' | 'invited'
 let setupPane: Pane = 'rows'
 // The own-keys build only.
 let keyFlow: 'first' | 'change' = 'first' // a first setup walks both steps; changing one key comes back to the keys
@@ -1037,6 +1037,11 @@ function renderSetup() {
     setupEl.innerHTML = `<p class="wl">${w('model.title')}</p><div class="next" role="group" aria-label="${w('model.title')}">${OWN.models().map((m) => `<button type="button" class="opt" data-model="${m}" aria-pressed="${m === now}"><b>${w(`model.${m}` as WordKey)}</b><span>${w(`model.${m}.says` as WordKey)}</span></button>`).join('')}<button type="button" class="opt" data-act="back"><b>${w('back')}</b><span>${w('model.back')}</span></button></div>`
     return
   }
+  if (setup && setupPane === 'script') {
+    const now = setup.script
+    setupEl.innerHTML = `<p class="wl">${w('setup.script')}</p><div class="next" role="group" aria-label="${w('setup.script')}">${(['traditional', 'simplified', 'heard'] as const).map((k) => `<button type="button" class="opt" data-script="${k}" aria-pressed="${k === now}"><b>${w(`script.${k}`)}</b><span>${w(`script.${k}.says`)}</span></button>`).join('')}<button type="button" class="opt" data-act="back"><b>${w('back')}</b><span>${w('model.back')}</span></button></div><p class="note">${w('setup.scriptNote')}</p>`
+    return
+  }
   if (setup && setupPane === 'lang') {
     const code = setup.lang
     setupEl.innerHTML = `<p class="wl">${w('setup.lang')}</p><div class="next" role="group" aria-label="${w('setup.language')}">${LANGS.map((l) => `<button type="button" class="opt" data-lang="${l.code}" aria-pressed="${l.code === code}"><b>${escapeHtml(l.code === 'auto' ? w('lang.auto.name') : l.name)}</b><span>${w(`lang.${l.code}` as WordKey)}</span></button>`).join('')}<button type="button" class="opt" data-act="back"><b>${w('back')}</b><span>${w('setup.langBack')}</span></button></div><p class="note">${w('setup.langNote')}</p>`
@@ -1051,12 +1056,13 @@ function renderSetup() {
   setupEl.innerHTML = `<p class="wl">${w('setup.title')}</p>${body}`
 }
 setupEl.addEventListener('click', (e) => {
-  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act], [data-lang], [data-model]')
+  const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act], [data-lang], [data-model], [data-script]')
   if (!el) return
   if (el.dataset.lang) { setupPane = 'rows'; tell({ type: 'lang', lang: el.dataset.lang }); return renderSetup() }
+  if (el.dataset.script) { setupPane = 'rows'; tell({ type: 'script', script: el.dataset.script }); return renderSetup() }
   if (el.dataset.model && OWN) { OWN.saveModel(el.dataset.model); setupPane = 'rows'; tell({ type: 'setup' }); return renderSetup() }
   const act = el.dataset.act
-  if (act === 'instructions' || act === 'lang' || act === 'model') setupPane = act
+  if (act === 'instructions' || act === 'lang' || act === 'model' || act === 'script') setupPane = act
   else if (act === 'keys' && OWN) { justSetUp = false; keyFlow = OWN.hasKeys() ? 'change' : 'first'; goKeyPane(OWN.hasKeys() ? 'keys' : 'needs') }
   else if (act === 'needs') goKeyPane('needs')
   else if (act === 'key-claude') goKeyPane('key-claude')

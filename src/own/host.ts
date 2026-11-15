@@ -15,6 +15,7 @@ import { OwnClaudeInterpreter, ownClaude, ownWrap, type CreateMessage } from './
 import { browserElevenSocket } from './eleven-socket'
 import { relayClaude, relayElevenFile, relayToken } from './invite'
 import { keyHint, type Prefs } from './prefs'
+import { effectiveScript, isChineseText, type ChineseScript } from '../live/script-pref'
 import type { SoundingStore } from './store'
 
 export interface OwnDeps {
@@ -34,12 +35,29 @@ export function ownSetup(prefs: Prefs): Setup {
   const keys = prefs.keys()
   const inv = prefs.invite()?.invite
   return {
-    transcriber: 'elevenlabs', hearsModel: null, interpreter: 'claude', thinksModel: prefs.model(), lang: prefs.lang(), api: true,
+    transcriber: 'elevenlabs', hearsModel: null, interpreter: 'claude', thinksModel: prefs.model(), lang: prefs.lang(), script: prefs.script(), api: true,
     ownInstructions: !wrap.isDefault, instructions: wrap.prompt,
     own: {
       keys: prefs.hasKeys(), claudeHint: keyHint(keys.claude), elevenHint: keyHint(keys.eleven),
       ...(inv ? { invite: { from: inv.from, minutes: inv.minutes, minutesLeft: inv.minutesLeft, expiresAt: inv.expiresAt, state: inv.state } } : {}),
     },
+  }
+}
+
+/**
+ * The rewrite into the listener's characters. The tables are large (1.2 MB): fetched now when Chinese is what is
+ * being listened for, and otherwise only when Chinese is first heard. The live text shows it about a second before
+ * the utterance is kept, so the tables are usually in by then; anything heard before they arrive stays as heard.
+ */
+export async function chineseRewriteFor(script: ChineseScript, now: boolean, load = () => import('../live/chinese-script')): Promise<((text: string) => string) | undefined> {
+  if (script === 'heard') return undefined
+  if (now) return (await load()).chineseRewrite(script)
+  let convert: ((text: string) => string) | undefined
+  let asked = false
+  return (text) => {
+    if (convert) return convert(text)
+    if (!asked && isChineseText(text)) { asked = true; void load().then((m) => { convert = m.chineseRewrite(script) }, () => { asked = false }) }
+    return text
   }
 }
 
@@ -57,6 +75,8 @@ export function ownHost(deps: OwnDeps): LiveHost {
   return {
     lang: () => prefs.lang(),
     saveLang: (code) => prefs.saveLang(code),
+    script: () => prefs.script(),
+    saveScript: (s) => prefs.saveScript(s),
     wrapPrompt: () => prefs.wrapPrompt(),
     saveWrapPrompt: (text) => prefs.saveWrapPrompt(text),
     setup: () => ownSetup(prefs),
@@ -66,8 +86,7 @@ export function ownHost(deps: OwnDeps): LiveHost {
       const invited = own ? null : prefs.invite()
       if (!own && !invited) throw new Error('both keys are needed before a sounding can start')
       const language = whisperLanguage(lang)
-      // The Chinese script tables are large: fetched only when Chinese is what is being listened for.
-      const rewrite = lang.startsWith('zh') ? (await import('../live/chinese-script')).scriptFor(lang) : undefined
+      const rewrite = await chineseRewriteFor(effectiveScript(lang, prefs.script()), lang.startsWith('zh'))
       const live = invited
         ? new ElevenLive(invited.device, language, deps.elevenSocket ?? browserElevenSocket(deps.fetchFn, undefined, relayToken(invited.device, deps.fetchFn)))
         : new ElevenLive(keys.eleven, language, deps.elevenSocket ?? browserElevenSocket(deps.fetchFn))
