@@ -9,3 +9,8 @@ export const LANGS: ReadonlyArray<{ code: string; name: string; says: string }> 
 ]
 export const isLang = (v: unknown): v is string => typeof v === 'string' && LANGS.some((l) => l.code === v)
 export const langName = (code: string): string => LANGS.find((l) => l.code === code)?.name ?? code
+
+/** 'en-US' → 'en'; 'auto' stays 'auto'. The speech models take bare ISO 639-1 codes. */
+export function whisperLanguage(lang: string): string {
+  return lang === 'auto' ? 'auto' : lang.split('-')[0].toLowerCase()
+}

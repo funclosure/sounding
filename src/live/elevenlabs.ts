@@ -4,9 +4,9 @@
 // (what is kept, marked and wrapped). The live model is quick but mishears
 // ordinary words the file model gets right, so nothing it says is kept.
 //
-// Both send the sound to ElevenLabs and spend API credit; the key stays in
-// this Node process.
-import WebSocket from 'ws'
+// Both send the sound to ElevenLabs and spend API credit. Nothing here is tied
+// to Node or to the browser: whoever builds an ElevenLive brings the socket
+// (the server's is in elevenlabs-node.ts, the page's in src/own).
 import { toWav } from './pcm-ring'
 import type { TranscribeFn } from './whisper-server'
 import type { LiveText } from './whisper-transcriber'
@@ -37,6 +37,14 @@ export interface LiveSocket {
   readyState: number
 }
 
+/** The samples' bytes in base64, without Node's Buffer so the page can do it too. */
+export function base64(pcm: Int16Array): string {
+  const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
+
 /** How long after a cut the live model's text is ignored when it never confirms the cut. */
 const CUT_SETTLE_MS = 1500
 
@@ -55,7 +63,7 @@ export class ElevenLive implements LiveText {
   constructor(
     private readonly key: string,
     private readonly language: string,
-    private readonly socket: (url: string, key: string) => LiveSocket = (url, k) => new WebSocket(url, { headers: { 'xi-api-key': k } }) as unknown as LiveSocket,
+    private readonly socket: (url: string, key: string) => LiveSocket,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -68,8 +76,7 @@ export class ElevenLive implements LiveText {
     if (this.closed) return
     if (!this.ws) { void this.connect().catch(() => { /* tried again on the next chunk */ }); return }
     if (this.ws.readyState !== 1) return
-    const bytes = Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength)
-    this.ws.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: bytes.toString('base64'), commit: this.cutPending, sample_rate: 16_000 }))
+    this.ws.send(JSON.stringify({ message_type: 'input_audio_chunk', audio_base_64: base64(pcm), commit: this.cutPending, sample_rate: 16_000 }))
     if (this.cutPending) { this.cutPending = false; this.staleUntil = this.now() + CUT_SETTLE_MS }
   }
 

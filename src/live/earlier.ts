@@ -4,24 +4,9 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { EventLog, type SoundingEvent } from '../core/events'
-import { wrapMaterial } from './wrap'
+import { EARLIER_MAX, EARLIER_NAME_RE as NAME_RE, earlierItem, isEarlierName, type EarlierItem } from './earlier-core'
 
-/** Only soundings spoken into the app: live-YYYYMMDD-HHMMSS.<interpreter>.jsonl. The name is the only thing a page may ask for. */
-const NAME_RE = /^live-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.[a-z][a-z-]{0,30}\.jsonl$/
-export const EARLIER_MAX = 200
-
-export interface EarlierItem {
-  name: string
-  /** When it was started, as local wall time: YYYY-MM-DDTHH:MM:SS. */
-  at: string
-  durationMs: number
-  /** The most prominent marks at the end, at most three. */
-  marks: string[]
-  /** Whether anything was said at all. */
-  said: boolean
-}
-
-export const isEarlierName = (v: unknown): v is string => typeof v === 'string' && NAME_RE.test(v)
+export { EARLIER_MAX, isEarlierName, type EarlierItem }
 
 const wrapPathOf = (logPath: string) => logPath.replace(/\.jsonl$/, '') + '.wrap.md'
 
@@ -33,12 +18,7 @@ function readEvents(path: string): SoundingEvent[] | null {
 export function listEarlier(dir = 'soundings'): EarlierItem[] {
   if (!existsSync(dir)) return []
   const names = readdirSync(dir).filter((n) => NAME_RE.test(n)).sort().reverse().slice(0, EARLIER_MAX)
-  return names.map((name) => {
-    const [, y, mo, d, h, mi, s] = NAME_RE.exec(name)!
-    const events = readEvents(join(dir, name)) ?? []
-    const m = wrapMaterial(events)
-    return { name, at: `${y}-${mo}-${d}T${h}:${mi}:${s}`, durationMs: events.at(-1)?.t ?? 0, marks: m.marks.slice(0, 3), said: !!m.transcript }
-  })
+  return names.map((name) => earlierItem(name, readEvents(join(dir, name)) ?? []))
 }
 
 /** One earlier sounding: its log, and the wrap saved beside it if there is one. Null if there is no such sounding. */
