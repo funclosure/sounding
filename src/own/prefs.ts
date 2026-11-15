@@ -6,10 +6,14 @@ import { DEFAULT_WRAP_PROMPT } from '../live/wrap-core'
 import { isLang } from '../live/langs'
 import { isOwnModel, type OwnModel } from './claude'
 import { tidyKey, type Keys, type Which } from './keys'
+import type { InviteView } from '../relay/relay'
 
 export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
 
-const K = { claude: 'sounding.own.claude-key', eleven: 'sounding.own.eleven-key', model: 'sounding.own.model', prompt: 'sounding.own.wrap-prompt', lang: 'sounding.own.lang' }
+const K = { claude: 'sounding.own.claude-key', eleven: 'sounding.own.eleven-key', model: 'sounding.own.model', prompt: 'sounding.own.wrap-prompt', lang: 'sounding.own.lang', invite: 'sounding.own.invite' }
+
+/** An accepted invite: the device's secret for the relay, and the invite as last heard from it. */
+export interface KeptInvite { device: string; invite: InviteView }
 
 export { tidyKey, keyHint, type Keys } from './keys'
 
@@ -24,6 +28,11 @@ export class Prefs {
   saveKeys(k: Keys): void { this.set(K.claude, tidyKey(k.claude)); this.set(K.eleven, tidyKey(k.eleven)) }
   saveKey(which: Which, key: string): void { this.set(K[which], tidyKey(key)) }
   forgetKeys(): void { this.set(K.claude, ''); this.set(K.eleven, '') }
+
+  invite(): KeptInvite | null {
+    try { const v = JSON.parse(this.get(K.invite)) as KeptInvite; return v && typeof v.device === 'string' && v.invite ? v : null } catch { return null }
+  }
+  saveInvite(v: KeptInvite | null): void { this.set(K.invite, v ? JSON.stringify(v) : '') }
 
   model(): OwnModel { const m = this.get(K.model); return isOwnModel(m) ? m : 'claude-sonnet-5-5' }
   saveModel(m: OwnModel): void { this.set(K.model, m) }

@@ -7,7 +7,7 @@ import type { LiveMessage } from '../live/engine'
 import type { EarlierItem } from '../live/earlier-core'
 import type { Setup } from '../live/setup'
 import { setupLines } from './setup'
-import { own, type KeyCheck, type KeyWhich, type PageSocket } from './socket'
+import { own, type InviteOpened, type KeyCheck, type KeyWhich, type PageSocket } from './socket'
 import { LANGS } from '../live/langs'
 import { snapshotOf, transcriptAt, laneSeries, ranked } from './board/model'
 import type { ReadingSnapshot } from './board/model'
@@ -813,7 +813,7 @@ let setupFailed = false
 // Two of its rows open: the wrap's instructions (an editor) and the language (a list).
 // The own-keys build adds the keys: first what they cost and where things go ('needs'), then one step per key,
 // then the two keys as kept ('keys'), and keys that came in this page's address from a carry code ('carried').
-type Pane = 'rows' | 'instructions' | 'lang' | 'model' | 'needs' | 'key-claude' | 'key-eleven' | 'keys' | 'carried'
+type Pane = 'rows' | 'instructions' | 'lang' | 'model' | 'needs' | 'key-claude' | 'key-eleven' | 'keys' | 'carried' | 'invited'
 let setupPane: Pane = 'rows'
 // The own-keys build only.
 let keyFlow: 'first' | 'change' = 'first' // a first setup walks both steps; changing one key comes back to the keys
@@ -829,6 +829,11 @@ let carriedHints: { claude: string; eleven: string } | null = null
 let carriedBusy = false
 let carriedSaid: { claude: KeyCheck; eleven: KeyCheck } | null = null
 const coarse = window.matchMedia('(pointer: coarse)')
+// A friend's invite link: what it offers (null while asking), whether it is being accepted, and whether it was.
+let invitePeek: InviteOpened | null = null
+let inviteBusy = false
+let inviteAccepted = false
+const dayOf = (t: number) => new Date(t).toLocaleDateString(dateLocale(), { day: 'numeric', month: 'short' })
 const keyWho = (which: KeyWhich) => (which === 'claude' ? 'Anthropic' : 'ElevenLabs')
 const keepable = (c: KeyCheck | 'asking' | null) => c === 'ok' || c === 'unreachable' || c === 'nocredit'
 /** What is said under a key's box, and how it is marked: 'ok', 'no', 'wait' or plain. */
@@ -947,7 +952,8 @@ function renderSetup() {
   }
   if (OWN && setupPane === 'needs') {
     const row = (k: 'costs' | 'sound' | 'words' | 'where') => `<dt>${w(`keys.${k}`)}</dt><dd>${w(`keys.${k}Say`)}</dd>`
-    setupEl.innerHTML = `${keyHead(w('keys.needs'))}<p class="say">${w('keys.needsSay')}</p>
+    const ended = OWN.invite()
+    setupEl.innerHTML = `${keyHead(w('keys.needs'))}${ended && !OWN.ready() ? `<p class="say">${w('keys.inviteEnded', { from: escapeHtml(ended.from) })}</p>` : ''}<p class="say">${w('keys.needsSay')}</p>
       <dl class="rows">${row('costs')}${row('sound')}${row('words')}${row('where')}</dl>
       ${coarse.matches ? `<p class="say quiet">${w('keys.phone')}</p>` : ''}
       <div class="acts">${goAct('key-claude', w('keys.start'))}${act('close', w('keys.notNow'), true)}</div>`
@@ -973,6 +979,35 @@ function renderSetup() {
     const input = setupEl.querySelector<HTMLInputElement>('#key-in')!
     input.value = keyTyped
     if (focused) input.focus()
+    return
+  }
+  if (OWN && setupPane === 'invited') {
+    const o = invitePeek
+    const line = (key: WordKey, vars?: Record<string, string>, tone = '') => `<p class="check ${tone}" role="status">${w(key, vars)}</p>`
+    if (!o || inviteBusy) { setupEl.innerHTML = `${keyHead(w('invite.title'))}${line(inviteBusy ? 'invite.accepting' : 'invite.opening', undefined, 'wait')}`; return }
+    if (o.kind !== 'ok') {
+      setupEl.innerHTML = `${keyHead(w('invite.title'))}${line(o.kind === 'unknown' ? 'invite.unknown' : o.kind === 'unset' ? 'invite.unset' : 'invite.unreachable', undefined, 'no')}
+        <div class="acts">${o.kind === 'unreachable' && OWN.pendingInvite() ? goAct('invite-again', w('keys.again')) : ''}${act('close', w('close'), true)}</div>`
+      return
+    }
+    const inv = o.invite
+    const from = escapeHtml(inv.from)
+    if (inviteAccepted) {
+      setupEl.innerHTML = `${keyHead(w('invite.title'))}<p class="say">${w('invite.readySay')}</p>
+        <dl class="rows"><dt>${w('invite.long')}</dt><dd>${w('invite.longSay', { minutes: String(inv.minutesLeft), until: dayOf(inv.expiresAt) })}</dd></dl>
+        <div class="acts">${goAct('close', w('keys.done'))}</div>`
+      return
+    }
+    if (o.claimed || inv.state !== 'ok') {
+      setupEl.innerHTML = `${keyHead(w('invite.title'))}${line(o.claimed ? 'invite.claimed' : `invite.${inv.state}` as WordKey, { from }, 'no')}<div class="acts">${act('close', w('close'), true)}</div>`
+      return
+    }
+    setupEl.innerHTML = `${keyHead(w('invite.title'))}<p class="say">${w('invite.say', { from })}</p>
+      <dl class="rows"><dt>${w('invite.long')}</dt><dd>${w('invite.longSay', { minutes: String(inv.minutes), until: dayOf(inv.expiresAt) })}</dd>
+      <dt>${w('keys.sound')}</dt><dd>${w('invite.soundSay', { from })}</dd><dt>${w('keys.words')}</dt><dd>${w('invite.wordsSay', { from })}</dd>
+      <dt>${w('invite.keptLabel')}</dt><dd>${w('invite.keptSay', { from })}</dd></dl>
+      <p class="say quiet">${w('invite.oneDevice')}</p>
+      <div class="acts">${goAct('invite-accept', w('invite.accept'))}${act('close', w('keys.notNow'), true)}</div>`
     return
   }
   if (OWN && setupPane === 'keys') {
@@ -1040,6 +1075,8 @@ setupEl.addEventListener('click', (e) => {
     if (carryShown) carryTimer = window.setTimeout(() => { carryShown = false; if (setupPane === 'keys') renderSetup() }, 120_000)
   }
   else if (act === 'carried-use' && OWN) return void useCarried()
+  else if (act === 'invite-accept' && OWN) return void acceptInvite()
+  else if (act === 'invite-again' && OWN) return openInviteSheet()
   else if (act === 'carried-no' && OWN) { OWN.dropCarried(); carriedHints = null; return closeSetup() }
   else if (act === 'forget' && OWN) { OWN.forgetKeys(); hideCarry(); justSetUp = false; keyFlow = 'first'; goKeyPane('needs'); tell({ type: 'setup' }); setState('state.needkeys', false) }
   else if (act === 'close') return closeSetup()
@@ -1065,6 +1102,34 @@ function finishKeyStep() {
   }
   renderSetup()
   setupEl.querySelector('input')?.focus()
+}
+/** A friend accepts the invite: from now on this device runs on it. */
+async function acceptInvite() {
+  if (!OWN || inviteBusy) return
+  inviteBusy = true
+  renderSetup()
+  let o: InviteOpened
+  try { o = await OWN.acceptInvite() } finally { inviteBusy = false }
+  invitePeek = o
+  inviteAccepted = o.kind === 'ok' && !o.claimed && o.invite.state === 'ok'
+  if (inviteAccepted) {
+    tell({ type: 'setup' })
+    if (stateSaid.key === 'state.needkeys') setState('state.ready', false)
+  }
+  if (setupOpen) renderSetup()
+}
+/** The page was opened from an invite link: say what it offers before anything is accepted. */
+function openInviteSheet() {
+  if (!OWN?.pendingInvite()) return
+  layout.closeContext()
+  closeEarlier()
+  setupOpen = true
+  setupFailed = false
+  goKeyPane('invited')
+  invitePeek = null
+  inviteAccepted = false
+  renderSetup()
+  void OWN.peekInvite().then((o) => { invitePeek = o; if (setupOpen && setupPane === 'invited') renderSetup() })
 }
 /** Keys that came in this page's address: asked about only once the listener says these are theirs. */
 async function useCarried() {
@@ -1111,6 +1176,9 @@ function closeSetup() {
   goKeyPane('rows')
   // keys carried in and neither used nor turned down are let go with the sheet
   if (carriedHints && OWN) { OWN.dropCarried(); carriedHints = null; carriedSaid = null }
+  if (OWN?.pendingInvite()) OWN.dropInvite()
+  invitePeek = null
+  inviteAccepted = false
   justSetUp = false
   renderSetup()
 }
@@ -1141,6 +1209,8 @@ function toggleSetup() {
   setupFailed = false
   renderSetup()
   if (setupOpen) tell({ type: 'setup' })
+  // minutes left change with every sounding: ask the relay again, and redraw when it answers
+  if (OWN?.invite()) void OWN.refreshInvite().then(() => { if (setupOpen) tell({ type: 'setup' }) })
 }
 
 function renderEarlier() {
@@ -1647,7 +1717,7 @@ async function stop() {
 
 big.addEventListener('click', () => {
   layout.closeContext()
-  if (state === 'idle') { if (OWN && !OWN.hasKeys()) askKeys(); else void start(canCarry()) }
+  if (state === 'idle') { if (OWN && !OWN.ready()) askKeys(); else void start(canCarry()) }
   else if (state === 'live') void stop()
 })
 
@@ -1715,6 +1785,10 @@ sayState(stateSaid.key)
 idleSocket().then((s) => s.send(JSON.stringify({ type: 'setup' })), () => {})
 // the own-keys build: this page was opened from a carry code, with keys in its address
 openCarried()
+// …or from a friend's invite link
+openInviteSheet()
+// an invite accepted earlier may have ended since: ask quietly, so the circle knows before it is pressed
+if (OWN?.invite() && !OWN.pendingInvite()) void OWN.refreshInvite()
 window.addEventListener('resize', () => {
   sheet.set(sheet.get())
   board.relayout()

@@ -21,7 +21,11 @@ export interface Setup {
   /** The wrap instructions in use, for the sheet's editor. */
   instructions: string
   /** Set when the page runs the sounding itself with the listener's own keys (src/own): whether both are in, and enough of each to recognise it by. */
-  own?: { keys: boolean; claudeHint: string; elevenHint: string }
+  own?: {
+    keys: boolean; claudeHint: string; elevenHint: string
+    /** A friend's accepted invite, as last heard from the relay. */
+    invite?: { from: string; minutes: number; minutesLeft: number; expiresAt: number; state: string }
+  }
 }
 
 const LANG_FILE = 'lang.txt'

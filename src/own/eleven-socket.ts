@@ -31,8 +31,11 @@ export async function checkElevenKey(key: string, fetchFn: typeof fetch = fetch)
 type Handler = (arg?: unknown) => void
 interface BrowserSocket { send(d: string): void; close(): void; readyState: number; onopen: (() => void) | null; onmessage: ((ev: { data: unknown }) => void) | null; onerror: (() => void) | null; onclose: (() => void) | null }
 
-/** The socket factory ElevenLive takes: token first, then the WebSocket. Until it is open nothing is sent. */
-export function browserElevenSocket(fetchFn: typeof fetch = fetch, open: (url: string) => BrowserSocket = (url) => new WebSocket(url) as unknown as BrowserSocket) {
+/**
+ * The socket factory ElevenLive takes: token first, then the WebSocket. Until it is open nothing is sent.
+ * `tokenFor` trades the key for the token; an invited friend's page gets it from the relay instead.
+ */
+export function browserElevenSocket(fetchFn: typeof fetch = fetch, open: (url: string) => BrowserSocket = (url) => new WebSocket(url) as unknown as BrowserSocket, tokenFor: (key: string) => Promise<string> = (key) => elevenToken(key, fetchFn)) {
   return (url: string, key: string): LiveSocket => {
     const handlers: Record<string, Handler> = {}
     let inner: BrowserSocket | null = null
@@ -43,7 +46,7 @@ export function browserElevenSocket(fetchFn: typeof fetch = fetch, open: (url: s
       close: () => { closed = true; sock.readyState = 3; if (inner) inner.close(); else handlers.close?.() },
       on: (ev, fn) => { handlers[ev] = fn },
     }
-    elevenToken(key, fetchFn).then((token) => {
+    tokenFor(key).then((token) => {
       if (closed) return
       inner = open(`${url}&token=${encodeURIComponent(token)}`)
       inner.onopen = () => { sock.readyState = 1; handlers.open?.() }

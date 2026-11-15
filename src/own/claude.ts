@@ -3,10 +3,11 @@
 // from the browser to Anthropic and nowhere else.
 import Anthropic from '@anthropic-ai/sdk'
 import { mapCandidates } from '../providers/candidates'
-import { SYSTEM_PROMPT, CANDIDATES_SCHEMA, buildUserPrompt } from '../providers/claude-extraction'
+import { SYSTEM_PROMPT, CANDIDATES_SCHEMA, buildUserPrompt } from '../providers/extraction-prompt'
 import { llmCost } from '../providers/pricing'
 import type { Interpreter, InterpreterInput, InterpretationResult } from '../interpret/port'
 import { WRAP_SCHEMA, WRAP_SYSTEM, buildWrapRequest, wrapFrom, type WrapWriter } from '../live/wrap-core'
+import { InviteEnded } from './invite'
 
 /** The models a listener may pick for marks. The wrap is always written by the first. */
 export const OWN_MODELS = ['claude-sonnet-5-5', 'claude-haiku-5-5'] as const
@@ -83,6 +84,7 @@ function costOf(model: string, u: Anthropic.Usage): number {
 export function claudeFailure(e: unknown): { refused: boolean; message: string } {
   if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) return { refused: true, message: 'Anthropic did not accept the Claude key' }
   if (isNoCredit(e)) return { refused: true, message: 'the Claude account has no credit left' }
+  if (e instanceof InviteEnded) return { refused: true, message: e.message }
   if (e instanceof Anthropic.RateLimitError) return { refused: false, message: 'Anthropic is rate-limiting this key' }
   if (e instanceof Anthropic.APIError) return { refused: false, message: e.message }
   return { refused: false, message: e instanceof Error ? e.message : String(e) }

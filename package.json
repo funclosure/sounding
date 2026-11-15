@@ -14,6 +14,7 @@
     "cast": "tsx src/cli/cast.ts",
     "compare": "tsx src/cli/compare.ts",
     "design": "node scripts/build-design.mjs",
+    "invite": "tsx scripts/invite.ts",
     "live": "tsx src/live/server.ts",
     "serve": "tsx src/serve/server.ts"
   },

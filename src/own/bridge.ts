@@ -7,6 +7,7 @@ import { checkElevenKey } from './eleven-socket'
 import { ownHost, type OwnDeps } from './host'
 import { localSocket } from './local-socket'
 import { carryCode, carryUrl, keyHint, lookOf, looksCutShort, tidyKey, type Keys, type Which } from './keys'
+import { inviteNow, openInvite, type Opened } from './invite'
 
 export interface BridgeDeps extends OwnDeps {
   /** Each asks its provider about a key: null when it works, else 'refused', 'nocredit' (Claude only) or 'unreachable'. */
@@ -16,6 +17,8 @@ export interface BridgeDeps extends OwnDeps {
   carried?: Keys | null
   /** The site's own address, for the carry code. */
   siteUrl?: () => string
+  /** An invite token that arrived in this page's address, already taken out of it. */
+  inviteToken?: string | null
 }
 
 /** One kept sounding as a note a person can read: when, what stood out, what was said back, and everything heard. */
@@ -34,6 +37,9 @@ export function ownBridge(deps: BridgeDeps): OwnBridge {
   const { prefs, store } = deps
   const host = ownHost(deps)
   let carried = deps.carried ?? null
+  let pending = deps.inviteToken ?? null
+  const fetchFn = deps.fetchFn ?? ((...a: Parameters<typeof fetch>) => fetch(...a))
+  const shown = (o: Opened) => (o.kind === 'ok' ? { kind: 'ok' as const, invite: o.invite, claimed: o.claimed } : o)
   const keepable = (c: KeyCheck) => c === 'ok' || c === 'unreachable' || c === 'nocredit'
   // What the key itself and then its provider say about it. A refused key is never kept; one that could not be
   // checked is (the provider may only be out of reach for a moment), and so is one on an account with no credit yet.
@@ -68,6 +74,30 @@ export function ownBridge(deps: BridgeDeps): OwnBridge {
     },
     dropCarried: () => { carried = null },
     forgetKeys: () => prefs.forgetKeys(),
+    ready() {
+      if (prefs.hasKeys()) return true
+      const inv = prefs.invite()?.invite
+      return !!inv && inv.state === 'ok' && Date.now() < inv.expiresAt && inv.minutesLeft > 0
+    },
+    invite: () => prefs.invite()?.invite ?? null,
+    async refreshInvite() {
+      const kept = prefs.invite()
+      if (!kept) return null
+      const now = await inviteNow(kept.device, fetchFn)
+      if (now === 'unreachable') return kept.invite
+      // the relay no longer knows this device (released for another one): the invite is gone from here too
+      prefs.saveInvite(now ? { device: kept.device, invite: now } : null)
+      return now
+    },
+    pendingInvite: () => pending !== null,
+    peekInvite: async () => (pending ? shown(await openInvite('peek', pending, fetchFn)) : { kind: 'unknown' as const }),
+    async acceptInvite() {
+      if (!pending) return { kind: 'unknown' as const }
+      const o = await openInvite('claim', pending, fetchFn)
+      if (o.kind === 'ok' && o.device) { prefs.saveInvite({ device: o.device, invite: o.invite }); pending = null }
+      return shown(o)
+    },
+    dropInvite: () => { pending = null },
     models: () => OWN_MODELS,
     saveModel: (m) => { if (isOwnModel(m)) prefs.saveModel(m) },
     async exportSounding(name) {
