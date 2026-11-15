@@ -2,16 +2,20 @@
 // that lives in the page, the keys it runs on, and a sounding as a file.
 import type { KeyCheck, OwnBridge } from '../ui/socket'
 import { wrapMaterial } from '../live/wrap-core'
-import { checkClaudeKey, isOwnModel, OWN_MODELS } from './claude'
+import { checkClaudeKey, isOwnModel, OWN_MODELS, type OwnModel } from './claude'
 import { checkElevenKey } from './eleven-socket'
 import { ownHost, type OwnDeps } from './host'
 import { localSocket } from './local-socket'
-import { tidyKey } from './prefs'
+import { carryCode, carryUrl, keyHint, lookOf, looksCutShort, tidyKey, type Keys, type Which } from './keys'
 
 export interface BridgeDeps extends OwnDeps {
-  /** Each asks its provider whether the key is accepted, at no cost: null when it is, else 'refused' or 'unreachable'. */
-  checkClaude?: (key: string) => Promise<string | null>
+  /** Each asks its provider about a key: null when it works, else 'refused', 'nocredit' (Claude only) or 'unreachable'. */
+  checkClaude?: (key: string, model: OwnModel) => Promise<string | null>
   checkEleven?: (key: string) => Promise<string | null>
+  /** Keys that arrived in this page's address from a carry code, already taken out of it. */
+  carried?: Keys | null
+  /** The site's own address, for the carry code. */
+  siteUrl?: () => string
 }
 
 /** One kept sounding as a note a person can read: when, what stood out, what was said back, and everything heard. */
@@ -29,22 +33,40 @@ export function soundingFile(name: string, events: Parameters<typeof wrapMateria
 export function ownBridge(deps: BridgeDeps): OwnBridge {
   const { prefs, store } = deps
   const host = ownHost(deps)
-  const verdict = (r: string | null): KeyCheck => (r === null ? 'ok' : r === 'refused' ? 'refused' : 'unreachable')
+  let carried = deps.carried ?? null
+  const keepable = (c: KeyCheck) => c === 'ok' || c === 'unreachable' || c === 'nocredit'
+  // What the key itself and then its provider say about it. A refused key is never kept; one that could not be
+  // checked is (the provider may only be out of reach for a moment), and so is one on an account with no credit yet.
+  async function judge(which: Which, typed: string): Promise<KeyCheck> {
+    const key = tidyKey(typed)
+    if (!key) return 'missing'
+    const look = lookOf(which, key)
+    if (look !== 'ok') return look
+    const r = which === 'claude' ? await (deps.checkClaude ?? checkClaudeKey)(key, prefs.model()) : await (deps.checkEleven ?? checkElevenKey)(key)
+    return r === null ? 'ok' : r === 'refused' ? (looksCutShort(which, key) ? 'short' : 'refused') : r === 'nocredit' ? 'nocredit' : 'unreachable'
+  }
   return {
     open: () => localSocket(host),
     hasKeys: () => prefs.hasKeys(),
-    async saveKeys(typed) {
-      // An empty box keeps the key already saved.
-      const kept = prefs.keys()
-      const claude = tidyKey(typed.claude) || kept.claude, eleven = tidyKey(typed.eleven) || kept.eleven
-      if (!claude || !eleven) return { claude: claude ? 'ok' : 'missing', eleven: eleven ? 'ok' : 'missing', saved: false }
-      const [c, e] = await Promise.all([(deps.checkClaude ?? checkClaudeKey)(claude), (deps.checkEleven ?? checkElevenKey)(eleven)])
-      const result = { claude: verdict(c), eleven: verdict(e) }
-      // A refused key is never kept. One that could not be checked is: the provider may only be out of reach for a moment.
-      const saved = result.claude !== 'refused' && result.eleven !== 'refused'
-      if (saved) prefs.saveKeys({ claude, eleven })
-      return { ...result, saved }
+    hints: () => { const k = prefs.keys(); return { claude: keyHint(k.claude), eleven: keyHint(k.eleven) } },
+    look: (which, typed) => (tidyKey(typed) ? lookOf(which, typed) : 'missing'),
+    async setKey(which, typed) {
+      const said = await judge(which, typed)
+      if (keepable(said)) prefs.saveKey(which, typed)
+      return said
     },
+    carryCode: () => (prefs.hasKeys() ? carryCode(carryUrl(deps.siteUrl?.() ?? location.href, prefs.keys())) : null),
+    carried: () => (carried ? { claude: keyHint(carried.claude), eleven: keyHint(carried.eleven) } : null),
+    async useCarried() {
+      const k = carried
+      carried = null
+      if (!k) return null
+      // Both are asked about first, and both kept only if neither was turned away: never one carried key beside one old one.
+      const [claude, eleven] = await Promise.all([judge('claude', k.claude), judge('eleven', k.eleven)])
+      if (keepable(claude) && keepable(eleven)) prefs.saveKeys(k)
+      return { claude, eleven }
+    },
+    dropCarried: () => { carried = null },
     forgetKeys: () => prefs.forgetKeys(),
     models: () => OWN_MODELS,
     saveModel: (m) => { if (isOwnModel(m)) prefs.saveModel(m) },

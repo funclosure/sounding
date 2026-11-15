@@ -5,8 +5,8 @@ own Claude and ElevenLabs keys (`src/own/`). It needs no server: the build is a
 folder of static files. This note is how that folder goes on Cloudflare Pages.
 Your mini is not part of it and keeps running as it does.
 
-Where it lives and what address it opens at are still open on the hosting plan.
-This follows the picks marked there (Cloudflare Pages, `sounding.funclosure.xyz`).
+It lives on Cloudflare Pages at https://sounding-2j1.pages.dev/, and can be
+given `sounding.funclosure.xyz` (below).
 Moving later is cheap: the folder is plain files, and Netlify reads the same
 `_headers` file.
 
@@ -38,24 +38,40 @@ sure that only the site's own code ever runs next to them:
 - Files under `/assets/` carry their content hash in the name, so they are
   cached for good.
 
-Checked on 15 November in Chrome, with the folder served under these headers: a
+Checked on 15 November in Chrome, with the folder served under these headers
+(and again on the live site after the first deploy): a
 Chinese sounding (ElevenLabs hearing, Claude stood in), the wrap, saving the
 picture and the text file, and reopening after a reload. Nothing was blocked.
 
 ## Deploying (you run these)
 
-Nothing here has been run. Wrangler is not installed: `bunx` fetches the pinned
-version, as Archipelago does. A Wrangler login file is already on the mini
-(from Archipelago's deploys), so step 1 should just confirm the account.
+First deployed on 15 November 2026 at **https://sounding-2j1.pages.dev/**
+(`sounding.pages.dev` was already someone else's). Wrangler is not installed:
+`bunx` fetches the pinned version, and the login is the one Archipelago's
+deploys left on the mini.
 
-1. Check the login: `bunx wrangler@4.148.0 whoami`
-2. Build and deploy: `bun run deploy:own`
-   The first time, Wrangler asks to create the Pages project `sounding` (say
-   yes, with production branch `main`). The site is then at
-   `https://sounding.pages.dev`, or a suffixed name if `sounding` is taken.
-3. Check that it serves its headers:
-   `curl -sI https://sounding.pages.dev | grep -i content-security`
-4. Open it, paste both keys, and run a short sounding. Then the phone.
+To deploy again, from the repo, with `main` checked out:
+
+    bun run deploy:own
+
+Then check that it serves its headers:
+`curl -sI https://sounding-2j1.pages.dev | grep -i content-security`
+
+### How the project was made, if it ever has to be made again
+
+Wrangler 4.148 hands `pages project create` to Cloudflare's newer Workers
+setup, which tries to turn the repo into a Workers project: it adds
+`wrangler` and `@cloudflare/vite-plugin`, rewrites `package.json` and
+`vite.config.ts`, and then fails on this repo's Vite config. `--force` makes a
+plain Pages project instead, and running it from an empty folder (`--cwd`)
+keeps it away from the repo:
+
+    mkdir -p /tmp/empty && bunx wrangler@4.148.0 pages project create sounding --production-branch main --force --cwd /tmp/empty
+
+Once the project exists, Wrangler deploys to it directly. If a deploy ever
+starts installing packages or changing files, stop it and run
+`git checkout -- package.json vite.config.ts bun.lock` and a fresh
+`bun install --frozen-lockfile`.
 
 Each later `bun run deploy:own` replaces the live site. Pages keeps every
 deployment, so **Deployments → Rollback** in the dashboard goes back to any
@@ -66,7 +82,7 @@ earlier one.
 In the dashboard: **Workers & Pages → sounding → Custom domains → Set up a
 domain**, then `sounding.funclosure.xyz`. If `funclosure.xyz` is on Cloudflare
 DNS, it adds the record itself. Otherwise, add a CNAME `sounding` →
-`sounding.pages.dev` where the domain's DNS lives.
+`sounding-2j1.pages.dev` where the domain's DNS lives.
 
 ### For you alone, if you want it shut
 
@@ -86,7 +102,22 @@ every deployment of it.
   visits. Web Analytics is not switched on.
 - **The visitor's browser:** both keys and every sounding (IndexedDB). Nothing
   is sent back to the site.
-- **ElevenLabs:** the sound while a sounding runs, on the visitor's key.
-- **Anthropic:** the words heard and the wrap request, on the visitor's key.
+- **ElevenLabs:** the sound while a sounding runs, on the visitor's key. A
+  pasted key is checked by asking for a single-use token, which costs nothing.
+- **Anthropic:** the words heard and the wrap request, on the visitor's key. A
+  pasted key is checked with one message answered in one token, on the model
+  the marks use, so that an account with no credit is caught at setup. It
+  costs a few millionths of a dollar.
 
-The keys sheet says the same to the visitor before they paste anything.
+The setup says the same to the visitor before they paste anything.
+
+### Carrying the keys to a phone
+
+Once both keys are in, the keys sheet can show a QR code holding the site's
+address with both keys after the `#`. A browser never sends the part after `#`
+to the site, so the keys go from one screen to the other through the camera
+only. The page that opens takes them out of its address before anything else
+runs (`src/own/keys.ts`, `takeCarried`), and keeps them only after the visitor
+says they are theirs, since whoever makes such a link chooses whose accounts
+hear them. The code closes by itself after two minutes: anyone who
+photographs it has both keys.

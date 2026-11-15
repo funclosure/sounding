@@ -29,13 +29,29 @@ export function ownClaude(key: string): CreateMessage {
   return (body) => client.messages.create(body)
 }
 
-/** Asks Anthropic whether the key is accepted. Costs nothing. Resolves to null when it is, else a reason. */
-export async function checkClaudeKey(key: string): Promise<string | null> {
+/** An account that accepts the key but has nothing to pay with: Anthropic answers 402 `billing_error` (older answers said "credit balance is too low"). */
+export function isNoCredit(e: unknown): boolean {
+  return e instanceof Anthropic.APIError && (e.status === 402 || e.type === 'billing_error' || /credit balance/i.test(e.message))
+}
+
+/** What asking Anthropic about a key found: null when it works, else why not. */
+export type ClaudeCheck = null | 'refused' | 'nocredit' | 'unreachable'
+
+/**
+ * Asks Anthropic whether the key works for marks: one message of a word or two
+ * on the model the marks use, answered with a single token. A key that is
+ * accepted but sits on an account with no credit fails here, not at the first
+ * mark. It costs a few millionths of a dollar, on the listener's bill.
+ */
+export async function checkClaudeKey(key: string, model: OwnModel = OWN_MODELS[0], create: CreateMessage = ownClaude(key)): Promise<ClaudeCheck> {
   try {
-    await new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 0 }).models.list({ limit: 1 })
+    await create({ model, max_tokens: 1, thinking: noThinking(model), messages: [{ role: 'user', content: 'Hi' }] })
     return null
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) return 'refused'
+    if (isNoCredit(e)) return 'nocredit'
+    // A rate limit means the key and the account are both good, only busy.
+    if (e instanceof Anthropic.RateLimitError) return null
     return 'unreachable'
   }
 }
@@ -66,6 +82,7 @@ function costOf(model: string, u: Anthropic.Usage): number {
 /** Why a call failed, in words for the page. A refused key is told apart: nothing will work until it is changed. */
 export function claudeFailure(e: unknown): { refused: boolean; message: string } {
   if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) return { refused: true, message: 'Anthropic did not accept the Claude key' }
+  if (isNoCredit(e)) return { refused: true, message: 'the Claude account has no credit left' }
   if (e instanceof Anthropic.RateLimitError) return { refused: false, message: 'Anthropic is rate-limiting this key' }
   if (e instanceof Anthropic.APIError) return { refused: false, message: e.message }
   return { refused: false, message: e instanceof Error ? e.message : String(e) }

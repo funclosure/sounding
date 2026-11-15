@@ -5,17 +5,13 @@
 import { DEFAULT_WRAP_PROMPT } from '../live/wrap-core'
 import { isLang } from '../live/langs'
 import { isOwnModel, type OwnModel } from './claude'
+import { tidyKey, type Keys, type Which } from './keys'
 
 export interface KV { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
 
 const K = { claude: 'sounding.own.claude-key', eleven: 'sounding.own.eleven-key', model: 'sounding.own.model', prompt: 'sounding.own.wrap-prompt', lang: 'sounding.own.lang' }
 
-export interface Keys { claude: string; eleven: string }
-
-/** A pasted key, tidied: whitespace and stray quotes off the ends. */
-export const tidyKey = (v: string): string => v.trim().replace(/^["']+|["']+$/g, '')
-/** Enough of a key to recognise it by, never the key: `sk-ant-…ab12`. */
-export const keyHint = (k: string): string => (k.length > 12 ? `${k.slice(0, 6)}…${k.slice(-4)}` : k ? '…' : '')
+export { tidyKey, keyHint, type Keys } from './keys'
 
 export class Prefs {
   /** `kv` is localStorage in the page. It can throw (a private window): reads then come back empty and writes are dropped. */
@@ -26,6 +22,7 @@ export class Prefs {
   keys(): Keys { return { claude: this.get(K.claude), eleven: this.get(K.eleven) } }
   hasKeys(): boolean { const k = this.keys(); return !!k.claude && !!k.eleven }
   saveKeys(k: Keys): void { this.set(K.claude, tidyKey(k.claude)); this.set(K.eleven, tidyKey(k.eleven)) }
+  saveKey(which: Which, key: string): void { this.set(K[which], tidyKey(key)) }
   forgetKeys(): void { this.set(K.claude, ''); this.set(K.eleven, '') }
 
   model(): OwnModel { const m = this.get(K.model); return isOwnModel(m) ? m : 'claude-sonnet-5-5' }
