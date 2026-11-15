@@ -4,3 +4,4 @@ recordings/
 soundings/
 models/
 .env
+dist-own
