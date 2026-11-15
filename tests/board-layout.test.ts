@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { fitFontPx, SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, BESIDE_MIN_W } from '../src/ui/board/layout'
+import { fitLabel, markRoom, SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, BESIDE_MIN_W } from '../src/ui/board/layout'
+import type { MeasureLabel } from '../src/ui/board/layout'
 import type { Placed } from '../src/ui/board/layout'
 
 describe('SlotLayout', () => {
@@ -250,18 +251,58 @@ describe('the gathered column', () => {
   })
 })
 
-describe('fitFontPx', () => {
-  it('keeps the size prominence asks for when the label fits', () => {
-    expect(fitFontPx(46, 300, 390)).toBe(46)
-    expect(fitFontPx(46, 500, 1100)).toBe(46)
+describe('markRoom', () => {
+  it('is what the walls leave: 0.9 of the width, less their padding on a phone', () => {
+    expect(markRoom(390)).toBe(351) // min(0.9 × 390, 390 − 36)
+    expect(markRoom(1100)).toBe(990)
   })
-  it('draws a label too wide for a phone smaller, so it stays inside the screen', () => {
-    // 390 wide: room is min(0.9 × 390, 390 − 36) = 351
-    const px = fitFontPx(46, 505, 390)
-    expect(px).toBe(31)
-    expect((505 * px) / 46).toBeLessThanOrEqual(351)
+})
+
+describe('fitLabel', () => {
+  // A stand-in for the page's ruler: each word is `per` px wide at 1px for every character, words are kept
+  // whole, a space is half a character, lines are filled evenly (as text-wrap: balance does), lines are 1.1 high.
+  const measure = (label: string): MeasureLabel => (px, wrapAt) => {
+    const words = label.split(' ').map((w) => w.length * px * 0.5)
+    const space = px * 0.25
+    const widthOf = (ws: number[]) => ws.reduce((a, b) => a + b, 0) + space * Math.max(0, ws.length - 1)
+    if (wrapAt === null) return { width: widthOf(words), height: px * 1.1, lines: 1 }
+    for (let lines = 1; lines <= words.length; lines++) {
+      // the most even split into `lines` lines: try every split for two, else greedy
+      let best = Infinity
+      if (lines === 1) best = widthOf(words)
+      else if (lines === 2) for (let i = 1; i < words.length; i++) best = Math.min(best, Math.max(widthOf(words.slice(0, i)), widthOf(words.slice(i))))
+      else best = Math.max(...words)
+      if (best <= wrapAt || lines === words.length) return { width: best, height: px * 1.1 * lines, lines }
+    }
+    throw new Error('unreachable')
+  }
+
+  it('keeps one line at the size prominence asks for when the label fits', () => {
+    const f = fitLabel(46, 351, measure('attention'))
+    expect(f).toEqual({ px: 46, wrap: null, width: 207, height: 46 * 1.1 })
+  })
+  it('puts a label too wide for a phone onto two lines at the same size, rather than drawing it smaller', () => {
+    // one line is 448px; split as "attention" / "over a week" the wider line is 230px
+    const f = fitLabel(46, 351, measure('attention over a week'))
+    expect(f.px).toBe(46)
+    expect(f.wrap).not.toBeNull()
+    expect(f.width).toBeLessThanOrEqual(351)
+    expect(f.height).toBeCloseTo(46 * 1.1 * 2)
+  })
+  it('draws it smaller only when two lines will not hold it', () => {
+    const f = fitLabel(46, 351, measure('a far longer label than any two lines at this size could ever hold'))
+    expect(f.px).toBeLessThan(46)
+    expect(f.px).toBeGreaterThanOrEqual(13)
+    expect(f.width).toBeLessThanOrEqual(351)
+    expect(f.height).toBeCloseTo(f.px * 1.1 * 2)
+  })
+  it('draws one long word smaller, on one line, as it cannot be broken', () => {
+    const f = fitLabel(46, 351, measure('internationalisation'))
+    expect(f.wrap).toBeNull()
+    expect(f.width).toBeLessThanOrEqual(351)
+    expect(f.px).toBe(35) // 10 × 35 = 350
   })
   it('never goes below the smallest size', () => {
-    expect(fitFontPx(40, 4000, 390)).toBe(13)
+    expect(fitLabel(40, 351, measure('x'.repeat(400))).px).toBe(13)
   })
 })

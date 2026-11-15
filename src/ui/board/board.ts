@@ -1,4 +1,5 @@
-import { SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, fitFontPx, BESIDE_MIN_W } from './layout'
+import { SlotLayout, separate, columnOrder, columnFontPx, besideRoom, besidePlan, fitLabel, markRoom, BESIDE_MIN_W } from './layout'
+import type { LabelFit } from './layout'
 
 /** Where the gathered words ended up, for the reading to take its place: under them (`bottom`), or beside them (`left`, `width`). */
 export type Column = { bottom: number } | { left: number; width: number }
@@ -50,6 +51,40 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
   // `layout.position`'s wall clamp (see `settleAll`, and layout.ts).
   const WALL_PAD = 8
 
+  // A hidden copy of a mark, to measure a label at the size and wrap it is about to have: the mark itself may be
+  // mid-transition (and offsetWidth leaves out the arrival's scale). No data-id, so nothing takes it for a mark.
+  const ruler = document.createElement('p')
+  ruler.className = 'mark ruler'
+  ruler.setAttribute('aria-hidden', 'true')
+  function measure(text: string, px: number, wrapAt: number | null) {
+    if (ruler.parentNode !== field) field.appendChild(ruler) // reset() clears the field
+    ruler.textContent = text
+    ruler.style.fontSize = `${px}px`
+    ruler.classList.toggle('wrapped', wrapAt !== null)
+    ruler.style.maxWidth = wrapAt === null ? '' : `${wrapAt}px`
+    // the inked width: wrapped, the box takes the whole room while its balanced lines take less
+    const range = document.createRange()
+    range.selectNodeContents(ruler)
+    const width = Math.ceil(range.getBoundingClientRect().width)
+    const height = ruler.offsetHeight
+    const line = parseFloat(getComputedStyle(ruler).lineHeight) || px * 1.1
+    return { width, height, lines: Math.max(1, Math.round(height / line)) }
+  }
+  function fit(el: HTMLElement, want: number, room: number): LabelFit {
+    const text = el.textContent ?? ''
+    return fitLabel(want, room, (px, wrapAt) => measure(text, px, wrapAt))
+  }
+  /**
+   * Draw a mark as fitted. A wrapped mark gets its width outright: a max-width would let it take only the room
+   * between its left (its centre, before the -50% shift) and the field's right wall. In em, so the lines break in
+   * the same place all through a change of size.
+   */
+  function dress(el: HTMLElement, f: LabelFit) {
+    if (el.style.fontSize !== `${f.px}px`) el.style.fontSize = `${f.px}px`
+    el.classList.toggle('wrapped', f.wrap !== null)
+    el.style.width = f.wrap === null ? '' : `${((f.wrap + 2) / f.px).toFixed(4)}em`
+  }
+
   function place(id: string, el: HTMLElement) {
     const w = field.clientWidth
     const h = field.clientHeight
@@ -86,15 +121,14 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
     }
 
     const placed: Placed[] = []
+    const fits = new Map<string, LabelFit>()
+    const room = markRoom(w, WALL_PAD)
     for (const [id, el] of live) {
-      // The size the mark's prominence asks for, fitted to this field's width: a long label on a phone is drawn
-      // smaller rather than run past the screen's edge. Sizes are worked out from the width now, not measured at
-      // the new size, since the font size may be mid-transition (and offsetWidth leaves out the arrival's scale).
-      const nowPx = parseFloat(getComputedStyle(el).fontSize) || 17
-      const want = Number(el.dataset.want) || nowPx
-      const px = fitFontPx(want, (el.offsetWidth * want) / nowPx, w, WALL_PAD)
-      if (el.style.fontSize !== `${px}px`) el.style.fontSize = `${px}px`
-      const rect = { width: (el.offsetWidth * px) / nowPx, height: (el.offsetHeight * px) / nowPx }
+      // The size the mark's prominence asks for, in this field's width: a label too long for a phone goes onto
+      // two lines, and is drawn smaller only when two lines will not hold it.
+      const f = fit(el, Number(el.dataset.want) || 17, room)
+      fits.set(id, f)
+      const rect = { width: f.width, height: f.height }
       const halfH = rect.height / 2
       // `layout.position`'s wall clamp (clampX) and `separate`'s own wall
       // clamp must agree on the same half-width, or a mark that `position`
@@ -109,10 +143,13 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
       placed.push({ id, x, y, halfW, halfH })
     }
 
-    const separated = separate(placed, box)
+    // More passes than separate's default: two-line marks on a phone crowd the field, and six passes can leave
+    // two of them touching. On a roomy board the extra passes find nothing to move.
+    const separated = separate(placed, box, 16)
     for (const p of separated) {
       const el = live.get(p.id)
       if (!el) continue
+      dress(el, fits.get(p.id)!)
       el.style.left = `${p.x}px`
       el.style.top = `${p.y}px`
     }
@@ -143,19 +180,16 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
     for (const m of order) {
       const el = live.get(m.id)
       if (!el) continue
-      let size = columnFontPx(m.p, w < 640)
-      // Width at the new size, from the width now: the font size may be mid-transition, so it cannot simply be measured.
-      const nowPx = parseFloat(getComputedStyle(el).fontSize) || size
-      const width = (el.offsetWidth * size) / nowPx
-      if (width > w - 36) size = Math.max(13, Math.floor((size * (w - 36)) / width))
-      const row = size * (w < 640 ? 1.38 : 1.45)
+      const f = fit(el, columnFontPx(m.p, w < 640), w - 36)
+      // a line's height and the space under it; a word on two lines takes the second line's height too
+      const row = f.height + f.px * (w < 640 ? 0.28 : 0.35)
       if (full || (y + row > limit && rank.get(m.id)! > 0)) {
         full = true
         el.classList.add('away')
         continue
       }
       el.classList.remove('away')
-      el.style.fontSize = `${size}px`
+      dress(el, f)
       el.style.left = `${w / 2}px`
       el.style.top = `${y + row / 2}px`
       y += row
@@ -171,20 +205,17 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
   function besideAll(order: Array<{ id: string; p: number }>, w: number, h: number) {
     const room = besideRoom(w)
     const limit = h - 28
-    const rows: Array<{ el: HTMLElement; size: number; width: number; row: number }> = []
+    const rows: Array<{ el: HTMLElement; f: LabelFit; width: number; row: number }> = []
     let total = 0
     let full = false
     const kept = new Set<string>()
     for (const m of order) {
       const el = live.get(m.id)
       if (!el) continue
-      let size = columnFontPx(m.p, false)
-      const nowPx = parseFloat(getComputedStyle(el).fontSize) || size
-      let width = (el.offsetWidth * size) / nowPx
-      if (width > room.words) { const fitted = Math.max(13, Math.floor((size * room.words) / width)); width = (width * fitted) / size; size = fitted }
-      const row = size * 1.34
+      const f = fit(el, columnFontPx(m.p, false), room.words)
+      const row = f.height + f.px * 0.24
       if (full || (total + row > limit && rows.length > 0)) { full = true; el.classList.add('away'); continue }
-      rows.push({ el, size, width, row })
+      rows.push({ el, f, width: f.width, row })
       kept.add(m.id)
       total += row
     }
@@ -192,7 +223,7 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
     let y = (h - total) / 2
     for (const r of rows) {
       r.el.classList.remove('away')
-      r.el.style.fontSize = `${r.size}px`
+      dress(r.el, r.f)
       r.el.style.left = `${plan.edge - r.width / 2}px`
       r.el.style.top = `${y + r.row / 2}px`
       y += r.row
@@ -253,6 +284,7 @@ export function createBoard(field: HTMLElement, opts: { onColumn?: (column: Colu
       const el = makeMarkEl(id)
       el.classList.add('ghost')
       el.textContent = label
+      el.dataset.want = '17'
       el.style.fontSize = '17px'
       field.appendChild(el)
       live.set(id, el)
