@@ -5,3 +5,6 @@ soundings/
 models/
 .env
 dist-own
+
+# Wrangler's working folder (local builds and deploys)
+.wrangler/

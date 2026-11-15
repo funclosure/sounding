@@ -111,6 +111,9 @@ every deployment of it.
 
 The setup says the same to the visitor before they paste anything.
 
+Friends you invite use the same site on your keys instead of their own,
+through a relay at `/api` on the site: see `docs/FRIENDS.md`.
+
 ### Carrying the keys to a phone
 
 Once both keys are in, the keys sheet can show a QR code holding the site's

@@ -39,11 +39,29 @@ export interface OwnBridge {
   useCarried(): Promise<{ claude: KeyCheck; eleven: KeyCheck } | null>
   dropCarried(): void
   forgetKeys(): void
+  /** A sounding can start: both keys of the listener's own, or an invite that has not ended. */
+  ready(): boolean
+  /** The accepted invite, as last heard from the relay. */
+  invite(): InviteInfo | null
+  /** Asks the relay how the accepted invite stands now, and keeps the answer. */
+  refreshInvite(): Promise<InviteInfo | null>
+  /** An invite link this page was opened from, not yet accepted or turned down. */
+  pendingInvite(): boolean
+  /** What the pending invite offers, without accepting it. */
+  peekInvite(): Promise<InviteOpened>
+  /** Accepts the pending invite on this device. */
+  acceptInvite(): Promise<InviteOpened>
+  dropInvite(): void
   models(): readonly string[]
   saveModel(model: string): void
   /** One kept sounding as a file's worth of text, for the listener to save. Null if it is no longer there. */
   exportSounding(name: string): Promise<{ filename: string; text: string } | null>
 }
+
+/** An invite as the page shows it. */
+export interface InviteInfo { name: string; from: string; expiresAt: number; minutes: number; minutesLeft: number; state: 'ok' | 'expired' | 'used' | 'revoked' | 'cap' }
+/** Opening an invite link: what it offers (`claimed` if another device has it), or why it could not be read. */
+export type InviteOpened = { kind: 'ok'; invite: InviteInfo; claimed: boolean } | { kind: 'unknown' | 'unreachable' | 'unset' }
 
 let bridge: OwnBridge | null = null
 export function installOwn(b: OwnBridge): void { bridge = b }
