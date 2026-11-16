@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { band, boxCeiling, clearingCeiling, prominenceFromFontPx, BOX_CLEAR, CLEAR_X, CLEAR_Y } from '../src/ui/board/dots'
+import {
+  band, boxCeiling, clearingCeiling, disturb, nudgePush, prominenceFromFontPx, stepWave, tetherScale,
+  BOX_CLEAR, CLEAR_X, CLEAR_Y, FARTHEST, NUDGE, WAVE_LASTS, WAVE_SPEED, WAVE_STEP,
+} from '../src/ui/board/dots'
 
 describe('clearingCeiling', () => {
   const halfW = 40, halfH = 12
@@ -59,5 +62,78 @@ describe('boxCeiling', () => {
     expect(far).toBeGreaterThan(near)
     expect(boxCeiling(0, halfH + BOX_CLEAR, halfW, halfH)).toBe(Infinity)
     expect(boxCeiling(halfW + BOX_CLEAR + 1, halfH + BOX_CLEAR + 1, halfW, halfH)).toBe(Infinity)
+  })
+})
+
+describe('nudgePush', () => {
+  const reach = 64
+  it('pushes hardest right under the pointer and not at all past three reaches', () => {
+    expect(nudgePush(0, NUDGE, reach)).toBeCloseTo(NUDGE * reach)
+    expect(nudgePush((reach / 2) ** 2, NUDGE, reach)).toBeLessThan(nudgePush(0, NUDGE, reach))
+    expect(nudgePush((3 * reach) ** 2 + 1, NUDGE, reach)).toBe(0)
+  })
+  it('never pushes one dot past another along a line out from the pointer', () => {
+    let was = -Infinity
+    for (let d = 0; d <= 3 * reach; d += 0.5) {
+      const at = d + nudgePush(d * d, NUDGE, reach)
+      expect(at).toBeGreaterThan(was)
+      was = at
+    }
+  })
+})
+
+describe('tetherScale', () => {
+  it('leaves a small offset nearly as it is', () => {
+    expect(tetherScale(2, FARTHEST)).toBeGreaterThan(0.99)
+    expect(tetherScale(0, FARTHEST)).toBe(1)
+  })
+  it('never lets a dot past the farthest, however hard it is pushed', () => {
+    for (const m of [10, 32, 60, 200, 5000]) expect(m * tetherScale(m, FARTHEST)).toBeLessThan(FARTHEST + 1e-9)
+  })
+  it('gives more room to a bigger push, never less', () => {
+    let was = 0
+    for (let m = 1; m < 200; m++) {
+      const kept = m * tetherScale(m, FARTHEST)
+      expect(kept).toBeGreaterThan(was)
+      was = kept
+    }
+  })
+})
+
+describe('the wave field', () => {
+  const dot = 28, cols = 40, rows = 40, size = (cols + 1) * (rows + 1)
+  const c2 = (WAVE_SPEED * WAVE_STEP / dot) ** 2, damp = Math.exp(-WAVE_STEP / WAVE_LASTS)
+  const cell = (i: number, j: number) => j * (cols + 1) + i
+  const run = (h: Float32Array, v: Float32Array, steps: number) => {
+    let most = 0
+    for (let s = 0; s < steps; s++) most = stepWave(h, v, cols, rows, c2, damp)
+    return most
+  }
+
+  it('lays a bump centred where it is dropped', () => {
+    const v = new Float32Array(size)
+    disturb(v, cols, rows, dot, 20 * dot, 20 * dot, 1)
+    expect(v[cell(20, 20)]).toBeCloseTo(1)
+    expect(v[cell(22, 20)]).toBeLessThan(v[cell(21, 20)])
+    expect(v[cell(18, 20)]).toBeCloseTo(v[cell(22, 20)])
+    expect(v[cell(0, 0)]).toBe(0)
+  })
+
+  it('runs out from where it was dropped as a ring', () => {
+    const h = new Float32Array(size), v = new Float32Array(size)
+    disturb(v, cols, rows, dot, 20 * dot, 20 * dot, -1)
+    run(h, v, 30) // half a second: the ring is about 160px out, between five and six dots
+    const ring = Math.max(...[4, 5, 6, 7].map((d) => Math.abs(h[cell(20 + d, 20)])))
+    expect(ring).toBeGreaterThan(Math.abs(h[cell(20, 20)]))
+    expect(ring).toBeGreaterThan(Math.abs(h[cell(20 + 14, 20)]))
+  })
+
+  it('dies down and goes flat', () => {
+    const h = new Float32Array(size), v = new Float32Array(size)
+    disturb(v, cols, rows, dot, 20 * dot, 20 * dot, -1)
+    const early = run(h, v, 12)
+    const late = run(h, v, 60 * 4)
+    expect(late).toBeLessThan(early * 0.2)
+    expect(run(new Float32Array(size), new Float32Array(size), 1)).toBe(0)
   })
 })

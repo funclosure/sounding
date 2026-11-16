@@ -8,6 +8,8 @@
 // (`gather`), and the text of the wrap gets a clearing of its own (`clear`).
 // It is quiet everywhere and turns vivid around the pointer, which is a patch of the field itself. A dot with nothing
 // to say is not drawn, and each mark sits in a clearing so its label stays readable.
+// The pointer also touches the dots: it nudges those near it aside, each tied to its place by a spring and never
+// more than `FARTHEST` from it, and a moving pointer (or a tap on the bare board) sets off a ripple under them.
 // Wall clock allowed: this is decoration, never part of the reading.
 
 export interface Dots {
@@ -45,6 +47,32 @@ export const BOX_CLEAR = 56
 /** How far the clearing reaches past a label's box, in px. */
 export const CLEAR_X = 56
 export const CLEAR_Y = 48
+
+// The pointer's touch, as tuned in the ripple prototype.
+/** How hard the pointer pushes the dots near it aside (under 1.16, so no dot passes another). */
+export const NUDGE = 0.425
+/** How far the push reaches, px: on a narrow board, on a wide one. */
+const NUDGE_REACH_NARROW = 64
+const NUDGE_REACH = 78
+/** The farthest a dot goes from its place, px: a soft limit, the pull home growing the farther it goes. */
+export const FARTHEST = 32
+/** The spring tying a dot to its place: stiff enough to keep up with a hand, damped to a slight sway home. */
+const SPRING_K = 121
+const SPRING_C = 2 * (1 - 0.75 * 0.15) * Math.sqrt(SPRING_K)
+/** How much the pointer stirs the wave field under the dots. */
+const RIPPLE = 0.25
+/** How fast a ripple runs (px/s), and how long it takes to die down to about a third (s). */
+export const WAVE_SPEED = 322
+export const WAVE_LASTS = 2
+/** The wave field moves in steps of this many seconds, whatever the frame rate. */
+export const WAVE_STEP = 1 / 60
+const WAVE_SIGMA = 34
+/** A tap on the bare board drops a ring into the field; lifting the finger lets one go the other way. */
+const TAP = -1.1
+const LIFT = 0.6
+/** A dot shifts with the wave's slope (at most `WAVE_SHIFT` px) and lights with its height. */
+const WAVE_TILT = 26
+const WAVE_SHIFT = 14
 
 const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x))
 export const smoothstep = (a: number, b: number, x: number) => {
@@ -122,6 +150,53 @@ export function dotPaint(b: number, col: DotColours): { alpha: number; fill: str
 /** A mark's pool reaches this far, from its share of the field. */
 export const poolRadius = (prom: number): number => 46 + 190 * Math.sqrt(prom)
 
+/** How far the pointer pushes a dot `d2` (px, squared) away from it: `strength` × `reach` right under it, gone by three reaches. */
+export function nudgePush(d2: number, strength: number, reach: number): number {
+  return d2 < 9 * reach * reach ? strength * reach * Math.exp(-d2 / (reach * reach)) : 0
+}
+
+/** The share of an offset `m` px long that a dot keeps under the soft limit: nearly all of a small one, and never past `limit`. */
+export function tetherScale(m: number, limit: number): number {
+  return m > 0.01 ? (limit * Math.tanh(m / limit)) / m : 1
+}
+
+/**
+ * Lay a soft bump of `amt` into the wave field's motion around (x, y). The field has one cell per dot, on the
+ * dots' grid of `cols` + 1 by `rows` + 1, `dot` px apart, with odd rows half a step over.
+ */
+export function disturb(v: Float32Array, cols: number, rows: number, dot: number, x: number, y: number, amt: number, sigma = WAVE_SIGMA): void {
+  const n = cols + 1
+  const reach = sigma * 3
+  const j0 = Math.max(0, Math.floor((y - reach) / dot)), j1 = Math.min(rows, Math.ceil((y + reach) / dot))
+  for (let j = j0; j <= j1; j++) {
+    const off = ((j % 2) * dot) / 2
+    const i0 = Math.max(0, Math.floor((x - reach - off) / dot)), i1 = Math.min(cols, Math.ceil((x + reach - off) / dot))
+    for (let i = i0; i <= i1; i++) v[j * n + i] += amt * Math.exp(-((i * dot + off - x) ** 2 + (j * dot - y) ** 2) / (sigma * sigma))
+  }
+}
+
+/**
+ * One step of the wave field under the dots: `c2` is how far a ripple runs in a step, in cells, squared; `damp` the
+ * share of its motion it keeps. Past the edge the field is still. Returns the largest height or motion left, so a
+ * field gone flat can stop being stepped.
+ */
+export function stepWave(h: Float32Array, v: Float32Array, cols: number, rows: number, c2: number, damp: number): number {
+  const n = cols + 1
+  for (let j = 0, idx = 0; j <= rows; j++) {
+    for (let i = 0; i <= cols; i++, idx++) {
+      const c = h[idx]
+      const lap = (i > 0 ? h[idx - 1] : 0) + (i < cols ? h[idx + 1] : 0) + (j > 0 ? h[idx - n] : 0) + (j < rows ? h[idx + n] : 0) - 4 * c
+      v[idx] = (v[idx] + c2 * lap) * damp
+    }
+  }
+  let most = 0
+  for (let k = 0; k < h.length; k++) {
+    h[k] += v[k]
+    most = Math.max(most, Math.abs(h[k]), Math.abs(v[k]))
+  }
+  return most
+}
+
 export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
   const g = canvas.getContext('2d')
   // Reduced motion: the field is movement and nothing else, so it stays off.
@@ -129,6 +204,11 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
 
   let W = 0, H = 0, DOT = 24, cols = 0, rows = 0
   let eased = new Float32Array(0)
+  // the wave field (height, motion) and each dot's offset from its place (and how fast it moves), one cell per dot
+  let wh = new Float32Array(0), wv = new Float32Array(0)
+  let ox = new Float32Array(0), oy = new Float32Array(0), vx = new Float32Array(0), vy = new Float32Array(0)
+  let waveC2 = 0, waveLive = false, springsLive = false, waveAcc = 0
+  const waveDamp = Math.exp(-WAVE_STEP / WAVE_LASTS)
   let col: DotColours = { dot: [0, 0, 0], accent: [0, 0, 0], hot: [0, 0, 0], alpha: 0.7 }
   const readColours = () => { col = readDotColours() }
   const resize = () => {
@@ -138,7 +218,12 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr)
     g.setTransform(dpr, 0, 0, dpr, 0, 0)
     cols = Math.ceil(W / DOT); rows = Math.ceil(H / DOT)
-    eased = new Float32Array((rows + 1) * (cols + 1))
+    const size = (rows + 1) * (cols + 1)
+    eased = new Float32Array(size)
+    wh = new Float32Array(size); wv = new Float32Array(size)
+    ox = new Float32Array(size); oy = new Float32Array(size); vx = new Float32Array(size); vy = new Float32Array(size)
+    waveC2 = (WAVE_SPEED * WAVE_STEP / DOT) ** 2
+    waveLive = false; springsLive = false
   }
 
   const pools = new Map<string, Pool>()
@@ -177,13 +262,41 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
 
   // quiet everywhere, vivid around the pointer (or a finger while it is down)
   let px = -1e4, py = -1e4, tx = px, ty = py, near = 0, nearTarget = 0
-  const onMove = (e: PointerEvent) => {
+  // where the eased pointer was a frame ago, and how fast it goes (px/s): a ripple follows speed, not presence
+  let lpx = px, lpy = py, pspeed = 0
+  let touching = false
+  const aim = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect()
     tx = e.clientX - r.left; ty = e.clientY - r.top
-    if (px < -1e3) { px = tx; py = ty }
+  }
+  // arriving (or a finger coming down somewhere new) puts the pointer there at once, rather than gliding across the field
+  const arrive = () => { px = lpx = tx; py = lpy = ty; pspeed = 0 }
+  const drop = (x: number, y: number, amt: number) => {
+    if (!W) return
+    disturb(wv, cols, rows, DOT, x, y, amt * RIPPLE)
+    waveLive = true
+  }
+  // only the bare board takes a tap: not a word, a button or a panel
+  const bare = (t: EventTarget | null) => t === o.field || t === canvas.parentElement
+  const onMove = (e: PointerEvent) => {
+    aim(e)
+    if (px < -1e3 || near < 0.02) arrive()
     nearTarget = 1
   }
-  const onUp = (e: PointerEvent) => { if (e.pointerType !== 'mouse') nearTarget = 0 }
+  const onDown = (e: PointerEvent) => {
+    aim(e)
+    if (px < -1e3 || e.pointerType !== 'mouse') arrive()
+    if (!bare(e.target)) return
+    nearTarget = 1
+    touching = e.pointerType !== 'mouse'
+    drop(tx, ty, TAP)
+  }
+  const onUp = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse') return
+    if (touching) drop(px, py, LIFT)
+    touching = false
+    nearTarget = 0
+  }
   const onLeave = () => { nearTarget = 0 }
 
   let last = 0
@@ -197,9 +310,21 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
     const talking = t - lastWordAt < 1.3 ? 1 : 0
     activity += (talking - activity) * (1 - Math.exp(-dt / (talking ? 0.5 : 2.6)))
     flowT += dt * (0.3 + 0.9 * activity)
-    const pk = 1 - Math.exp(-dt * 6)
+    const pk = 1 - Math.exp(-dt * 10)
     px += (tx - px) * pk; py += (ty - py) * pk
     near += (nearTarget - near) * (1 - Math.exp(-dt * 2.5))
+    if (dt > 0) pspeed += (Math.hypot(px - lpx, py - lpy) / dt - pspeed) * (1 - Math.exp(-dt * 12))
+    lpx = px; lpy = py
+    // a moving pointer disturbs the wave field under it, more the faster it goes; a still one leaves it be
+    waveAcc += dt
+    let steps = 0
+    while (waveAcc >= WAVE_STEP && steps < 4) {
+      const s = near > 0.05 ? clamp(pspeed / 700) : 0
+      if (s > 0.01) drop(px, py, -0.04 * s * near)
+      if (waveLive && stepWave(wh, wv, cols, rows, waveC2, waveDamp) < 1e-4) { waveLive = false; wh.fill(0); wv.fill(0) }
+      waveAcc -= WAVE_STEP; steps++
+    }
+    if (steps === 4) waveAcc = 0
     for (const p of pools.values()) {
       p.prom += ((p.seen ? p.target : 0) - p.prom) * (1 - Math.exp(-dt / 1.2))
       p.life += ((p.seen ? 1 : 0) - p.life) * (1 - Math.exp(-dt / 1.1))
@@ -221,25 +346,57 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
     let beside = 0
     for (const p of live) beside = Math.max(beside, p.life * Math.exp(-((px - p.x) ** 2 + (py - p.y) ** 2) / ((p.r + 110) ** 2)))
     const stir = near * (POINTER_OPEN + (1 - POINTER_OPEN) * beside)
+    // the nudge: how hard the pointer pushes and how far; the dots follow on their springs and swing home after
+    const push = NUDGE * near
+    const pushing = push > 0.002
+    const reach = W < 640 ? NUDGE_REACH_NARROW : NUDGE_REACH
+    const springing = pushing || springsLive
+    const sdt = Math.min(dt, 1 / 30)
+    let unsettled = 0
 
     g.clearRect(0, 0, W, H)
     const k = 1 - Math.exp(-dt / 0.28)
+    const n = cols + 1
     let idx = 0
     for (let j = 0; j <= rows; j++) {
       for (let i = 0; i <= cols; i++, idx++) {
         const x = i * DOT + ((j % 2) * DOT) / 2 // offset rows: the site's hex-ish grid
         const y = j * DOT
+        // where the dot is drawn: pushed out of the pointer's way, tilted by the wave, never far from its place
+        let offX = 0, offY = 0
+        if (springing) {
+          let aimX = 0, aimY = 0
+          if (pushing) {
+            const dx = x - px, dy = y - py, d2 = dx * dx + dy * dy
+            const f = d2 > 0.01 ? nudgePush(d2, push, reach) : 0
+            if (f > 0) { const d = Math.sqrt(d2); aimX = (dx / d) * f; aimY = (dy / d) * f }
+          }
+          vx[idx] += (SPRING_K * (aimX - ox[idx]) - SPRING_C * vx[idx]) * sdt; ox[idx] += vx[idx] * sdt
+          vy[idx] += (SPRING_K * (aimY - oy[idx]) - SPRING_C * vy[idx]) * sdt; oy[idx] += vy[idx] * sdt
+          offX = ox[idx]; offY = oy[idx]
+          unsettled = Math.max(unsettled, Math.abs(offX), Math.abs(offY), 0.1 * Math.abs(vx[idx]), 0.1 * Math.abs(vy[idx]))
+        }
+        const wave = waveLive ? wh[idx] : 0
+        if (waveLive) {
+          const gx = ((i < cols ? wh[idx + 1] : 0) - (i > 0 ? wh[idx - 1] : 0)) / 2
+          const gy = ((j < rows ? wh[idx + n] : 0) - (j > 0 ? wh[idx - n] : 0)) / 2
+          offX += clamp(gx * WAVE_TILT, -WAVE_SHIFT, WAVE_SHIFT)
+          offY += clamp(gy * WAVE_TILT, -WAVE_SHIFT, WAVE_SHIFT)
+        }
+        if (offX !== 0 || offY !== 0) { const s = tetherScale(Math.hypot(offX, offY), FARTHEST); offX *= s; offY *= s }
+        const X = x + offX, Y = y + offY
+        // what the dot has to say is read where it rests; the clearings, where it is drawn
         let b = amb * band(x, y, flowT)
         let ceiling = Infinity
         let keep = 1
         for (const p of live) {
           const dx = x - p.x, dy = y - p.y, d2 = dx * dx + dy * dy
           if (d2 < p.r * p.r * 6) keep *= 1 - Math.min(0.97, p.life * (0.66 + 0.5 * p.pulse)) * Math.exp(-d2 / (p.r * p.r))
-          const c = clearingCeiling(dx, dy, p.halfW, p.halfH)
+          const c = clearingCeiling(X - p.x, Y - p.y, p.halfW, p.halfH)
           if (c < ceiling) ceiling = c
         }
         if (box) {
-          const c = boxCeiling(x - box.x, y - box.y, box.halfW, box.halfH)
+          const c = boxCeiling(X - box.x, Y - box.y, box.halfW, box.halfH)
           if (c < ceiling) ceiling = c
         }
         // pools and rings screen over the bands, so overlaps merge instead of creasing
@@ -253,6 +410,11 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
           const fade = r.inward ? Math.sin(Math.PI * Math.min(1, age / RING_LIFE_S)) ** 0.8 : (1 - age / RING_LIFE_S) ** 1.5
           const v = r.s * fade * Math.exp(-((d / 20) ** 2))
           b = b + v - b * v
+        }
+        // the wave lights what it lifts
+        if (wave !== 0) {
+          const wl = 0.2 * Math.min(1, Math.abs(wave))
+          b = b + wl - b * wl
         }
         const close = near < 0.01 ? 0 : near * Math.exp(-((x - px) ** 2 + (y - py) ** 2) / (POINTER_REACH * POINTER_REACH))
         const stirShare = near < 0.01 ? 0 : stir / near
@@ -272,9 +434,14 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
         g.globalAlpha = paint.alpha
         g.fillStyle = paint.fill
         g.beginPath()
-        g.arc(x, y, paint.r, 0, TAU)
+        g.arc(X, Y, paint.r, 0, TAU)
         g.fill()
       }
+    }
+    // home and still: stop working the springs until the pointer pushes again
+    if (springing) {
+      springsLive = pushing || unsettled > 0.02
+      if (!springsLive) { ox.fill(0); oy.fill(0); vx.fill(0); vy.fill(0) }
     }
     raf = requestAnimationFrame(frame)
   }
@@ -290,6 +457,7 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
   ro.observe(canvas)
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   addEventListener('pointermove', onMove, { passive: true })
+  addEventListener('pointerdown', onDown, { passive: true })
   addEventListener('pointerup', onUp, { passive: true })
   addEventListener('pointercancel', onUp, { passive: true })
   document.documentElement.addEventListener('pointerleave', onLeave)
@@ -319,6 +487,7 @@ export function createDots(canvas: HTMLCanvasElement, o: DotsOptions): Dots {
       running = false
       ro.disconnect(); mo.disconnect()
       removeEventListener('pointermove', onMove)
+      removeEventListener('pointerdown', onDown)
       removeEventListener('pointerup', onUp)
       removeEventListener('pointercancel', onUp)
       document.documentElement.removeEventListener('pointerleave', onLeave)
