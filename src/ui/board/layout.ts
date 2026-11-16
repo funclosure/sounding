@@ -13,16 +13,41 @@ function clampX(x: number, halfW: number, w: number): number {
 }
 
 /**
- * The size a mark's label is drawn at on the open board: the size its
- * prominence asks for, made smaller when the label at that size would be wider
- * than the field allows (a long label on a phone), never below `min`. The field
- * allows what `clampX` can hold clear of both walls: 0.9 of the width, less the
- * walls' padding. `widthAtWant` is the label's width at `want` px.
+ * How wide a mark's label may be on the open board: what `clampX` can hold
+ * clear of both walls, 0.9 of the width less the walls' padding.
  */
-export function fitFontPx(want: number, widthAtWant: number, w: number, pad = 8, min = 13): number {
-  const room = Math.min(w * 0.9, w - 2 * (pad + 10))
-  if (widthAtWant <= room || widthAtWant <= 0) return want
-  return Math.max(min, Math.floor((want * room) / widthAtWant))
+export function markRoom(w: number, pad = 8): number {
+  return Math.min(w * 0.9, w - 2 * (pad + 10))
+}
+
+/** A label as drawn at `px`: on one line (`wrapAt` null), or let wrap within `wrapAt` px. Its inked width and height, and its lines. */
+export type MeasureLabel = (px: number, wrapAt: number | null) => { width: number; height: number; lines: number }
+
+/** How a label is drawn: its size, and, when it wraps, the width its lines take (null: one line). */
+export interface LabelFit {
+  px: number
+  wrap: number | null
+  width: number
+  height: number
+}
+
+/**
+ * How a mark's label is drawn in `room`: at the size its prominence asks for,
+ * on one line if it fits; otherwise at that same size on two lines; only when
+ * two lines will not hold it (a single long word, a very long label) drawn
+ * smaller, never below `min`.
+ */
+export function fitLabel(want: number, room: number, measure: MeasureLabel, min = 13): LabelFit {
+  const one = measure(want, null)
+  if (one.width <= room) return { px: want, wrap: null, width: one.width, height: one.height }
+  let px = want
+  for (;;) {
+    const two = measure(px, room)
+    if ((two.lines <= 2 && two.width <= room) || px <= min) return { px, wrap: two.lines > 1 ? two.width : null, width: two.width, height: two.height }
+    // a word too long to break narrows in step with its size, so the ratio lands on the size; three lines step down
+    const next = two.lines <= 2 ? Math.floor((px * room) / two.width) : Math.floor(px * 0.92)
+    px = Math.max(min, Math.min(px - 1, next))
+  }
 }
 
 /** Clamp `y` so a box stays clear of the field's top/bottom walls. */
