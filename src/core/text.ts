@@ -18,8 +18,10 @@ export const STOPWORDS = new Set([
   'off', 'now', 'one', 'two', 'time', 'back', 'every',
 ])
 
+// Letters and digits of any script are kept: a Chinese word is a word too. (Keeping only a–z left every Chinese
+// label empty, so they all looked like one another.)
 export function normalizeToken(raw: string): string {
-  let t = raw.toLowerCase().replace(/[^a-z0-9']/g, '').replace(/'/g, '')
+  let t = raw.toLowerCase().replace(/[^\p{L}\p{M}\p{N}']/gu, '').replace(/'/g, '')
   if (t.length > 3 && t.endsWith('s') && !t.endsWith('ss')) t = t.slice(0, -1)
   return t
 }
