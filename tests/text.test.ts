@@ -11,6 +11,13 @@ describe('normalizeToken', () => {
     expect(normalizeToken('loss')).toBe('loss')
     expect(normalizeToken('gas')).toBe('gas') // length 3: too short to fold
   })
+  it('keeps the letters of every script, so a Chinese word is not emptied', () => {
+    expect(normalizeToken('展覽')).toBe('展覽')
+    expect(normalizeToken('騎車，')).toBe('騎車')
+    expect(normalizeToken('APP上線')).toBe('app上線')
+    expect(normalizeToken('Café')).toBe('café')
+    expect(normalizeToken('—')).toBe('')
+  })
 })
 
 describe('tokenize', () => {

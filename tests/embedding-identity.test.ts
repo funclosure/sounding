@@ -37,3 +37,21 @@ describe('EmbeddingIdentityResolver', () => {
     expect(await resolver.resolve(candidate('car'), [concept('c1', 'rent')])).toBeNull()
   })
 })
+
+describe('EmbeddingIdentityResolver with Chinese labels', () => {
+  const resolver = new EmbeddingIdentityResolver(0.62)
+
+  it('keeps different topics apart, which the English model cannot tell from one another', async () => {
+    expect(await resolver.resolve(candidate('投票'), [concept('c1', '展覽')])).toBeNull()
+    expect(await resolver.resolve(candidate('騎車'), [concept('c1', '展覽'), concept('c2', '投票')])).toBeNull()
+  })
+
+  it('still folds the same topic said two ways', async () => {
+    expect(await resolver.resolve(candidate('看展覽'), [concept('c1', '展覽'), concept('c2', '投票')])).toBe('c1')
+    expect(await resolver.resolve(candidate('選錢之夜'), [concept('c1', '選前之夜')])).toBe('c1')
+  })
+
+  it('never compares an English label with a Chinese one through the model', { timeout: 60_000 }, async () => {
+    expect(await resolver.resolve(candidate('exhibition'), [concept('c1', '展覽')])).toBeNull()
+  })
+})
