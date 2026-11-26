@@ -1,6 +1,6 @@
 // A friend's side of an invite: the page's client and bridge, talking to the real relay code
 // (on a local database), with stand-ins for Anthropic and ElevenLabs behind it.
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, onTestFinished } from 'vitest'
 import { handleRelay, type RelayEnv } from '../src/relay/relay'
 import { inviteIn, takeInvite, relayClaude, InviteEnded } from '../src/own/invite'
 import { claudeFailure } from '../src/own/claude'
@@ -51,6 +51,10 @@ describe('an invite link', () => {
 
 describe('accepting an invite in the page', () => {
   it('shows what it offers, accepts it on this device, and then the page is ready without keys', async () => {
+    // the page asks the real clock whether the invite is still good, so it is set to the relay's day
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.UTC(2026, 10, 15, 12))
+    onTestFinished(() => { vi.useRealTimers() })
     const s = site()
     const { token } = await s.admin('/invites', { name: 'Amy', from: 'Victor', minutes: 45 })
     const prefs = new Prefs(kv())

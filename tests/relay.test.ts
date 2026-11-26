@@ -173,7 +173,7 @@ describe('when an invite ends', () => {
     const r = relay()
     const { device } = await r.accept((await r.invite()).token)
     const env = { ...r.env }
-    const res = await handleRelay(new Request(`${SITE}/api/eleven/token`, { method: 'POST', headers: { authorization: `Bearer ${device}` } }), env, { fetch: (async () => new Response('{"detail":"no"}', { status: 401 })) as unknown as typeof fetch })
+    const res = await handleRelay(new Request(`${SITE}/api/eleven/token`, { method: 'POST', headers: { authorization: `Bearer ${device}` } }), env, { fetch: (async () => new Response('{"detail":"no"}', { status: 401 })) as unknown as typeof fetch, now: () => Date.UTC(2026, 10, 15, 12) })
     expect(res.status).toBe(503)
     expect(((await res.json()) as { error: { type: string } }).error.type).toBe('relay_unavailable')
   })
