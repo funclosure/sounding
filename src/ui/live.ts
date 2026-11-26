@@ -606,13 +606,17 @@ function saveFile(blob: Blob, name: string) {
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
-/** Hands the picture to the device's share sheet where there is one (a phone), otherwise saves it as a file. */
+/**
+ * Hands the picture to the share sheet on a phone or tablet, where Save Image lives; elsewhere saves it as a file.
+ * A Mac has a share sheet too, but it offers no way to save the picture, so a computer always downloads it.
+ */
 async function sharePicture(says: Element, foot: string, text: string) {
   try {
     const blob = await soundingPicture(foot, text)
     const stamp = /(\d{8}-\d{6})/.exec(currentName ?? '')?.[1] ?? String(Date.now())
     const file = new File([blob], `sounding-${stamp}.png`, { type: 'image/png' })
-    if (navigator.canShare?.({ files: [file] })) {
+    const touch = window.matchMedia('(pointer: coarse)').matches
+    if (touch && navigator.canShare?.({ files: [file] })) {
       try { await navigator.share({ files: [file] }); return } catch (e) {
         if (e instanceof Error && e.name === 'AbortError') return // the sheet was closed: nothing to say
       }
